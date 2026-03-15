@@ -1,7 +1,0 @@
-{
-  "name": "allude",
-  "private": true,
-  "workspaces": [
-    "packages/*"
-  ]
-}

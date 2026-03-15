@@ -103,7 +103,11 @@ final class AppModel: ObservableObject {
         do {
             let data = try await client.send(
                 query: AlludeAPI.graph,
-                variables: ["centerThoughtId": centerThoughtId, "distance": 2, "limit": 12],
+                variables: [
+                    "centerThoughtId": AnyEncodable(centerThoughtId),
+                    "distance": AnyEncodable(2),
+                    "limit": AnyEncodable(12)
+                ],
                 data: GraphData.self
             )
             graph = data.graph

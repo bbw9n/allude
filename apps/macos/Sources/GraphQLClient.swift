@@ -5,6 +5,18 @@ enum GraphQLClientError: Error {
     case graphQLErrors([String])
 }
 
+struct AnyEncodable: Encodable {
+    private let encodeValue: (Encoder) throws -> Void
+
+    init<T: Encodable>(_ value: T) {
+        self.encodeValue = value.encode(to:)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try encodeValue(encoder)
+    }
+}
+
 struct GraphQLRequestBody<V: Encodable>: Encodable {
     let query: String
     let variables: V
