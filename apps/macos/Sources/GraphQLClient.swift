@@ -5,7 +5,7 @@ enum GraphQLClientError: Error {
     case graphQLErrors([String])
 }
 
-struct AnyEncodable: Encodable {
+struct AnyEncodable: Encodable, @unchecked Sendable {
     private let encodeValue: (Encoder) throws -> Void
 
     init<T: Encodable>(_ value: T) {
@@ -31,7 +31,7 @@ struct GraphQLErrorPayload: Decodable {
     let message: String
 }
 
-final class GraphQLClient {
+struct GraphQLClient: Sendable {
     let endpoint: URL
 
     init(endpoint: URL = URL(string: "http://127.0.0.1:4000/")!) {
