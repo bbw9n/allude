@@ -72,12 +72,13 @@ struct GraphCanvasView: View {
                     let fill = node.distance == 0 ? Color(red: 0.18, green: 0.22, blue: 0.30) : Color.white.opacity(0.82)
                     context.fill(shape, with: .color(fill))
                     context.stroke(shape, with: .color(Color.black.opacity(0.2)), lineWidth: 1)
-                    let text = Text(node.thought.currentVersion.content)
+                    let text = context.resolve(
+                        Text(node.thought.currentVersion.content)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(node.distance == 0 ? .white : .black)
                         .lineLimit(2)
-                        .frame(width: 96)
-                    context.draw(text, at: point)
+                    )
+                    context.draw(text, in: rect.insetBy(dx: 6, dy: 6))
                 }
             }
             .background(
