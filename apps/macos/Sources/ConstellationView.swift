@@ -70,14 +70,14 @@ struct GraphCanvasView: View {
                     let rect = CGRect(x: point.x - 54, y: point.y - 28, width: 108, height: 56)
                     let shape = RoundedRectangle(cornerRadius: 18, style: .continuous).path(in: rect)
                     let fill = node.distance == 0 ? Color(red: 0.18, green: 0.22, blue: 0.30) : Color.white.opacity(0.82)
+                    let label = String(node.thought.currentVersion.content.prefix(36))
                     context.fill(shape, with: .color(fill))
                     context.stroke(shape, with: .color(Color.black.opacity(0.2)), lineWidth: 1)
-                    let text = context.resolve(
-                        Text(node.thought.currentVersion.content)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(node.distance == 0 ? .white : .black)
-                        .lineLimit(2)
+                    var text = context.resolve(
+                        Text(label)
+                            .font(.system(size: 11, weight: .semibold))
                     )
+                    text.shading = .color(node.distance == 0 ? .white : .black)
                     context.draw(text, in: rect.insetBy(dx: 6, dy: 6))
                 }
             }

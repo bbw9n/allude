@@ -18,9 +18,9 @@ struct FlowLayout<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             let rows = makeRows()
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+            ForEach(rows.indices, id: \.self) { index in
                 HStack {
-                    ForEach(row, id: \.self) { item in
+                    ForEach(rows[index], id: \.self) { item in
                         content(item)
                     }
                     Spacer(minLength: 0)
