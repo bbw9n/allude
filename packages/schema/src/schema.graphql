@@ -1,0 +1,104 @@
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  READY
+  PARTIAL
+  FAILED
+}
+
+enum RelationType {
+  related
+  extends
+  contradicts
+  example_of
+}
+
+type User {
+  id: ID!
+  username: String!
+  bio: String
+  interests: [String!]!
+}
+
+type ThoughtVersion {
+  id: ID!
+  thoughtId: ID!
+  version: Int!
+  content: String!
+  createdAt: String!
+}
+
+type Concept {
+  id: ID!
+  name: String!
+  createdAt: String!
+  relatedConcepts(limit: Int = 6): [Concept!]!
+  topThoughts(limit: Int = 8): [Thought!]!
+}
+
+type ThoughtLink {
+  id: ID!
+  sourceThoughtId: ID!
+  targetThoughtId: ID!
+  relationType: RelationType!
+  score: Float!
+  origin: String!
+  createdAt: String!
+}
+
+type Thought {
+  id: ID!
+  author: User!
+  currentVersion: ThoughtVersion!
+  versions: [ThoughtVersion!]!
+  concepts: [Concept!]!
+  relatedThoughts(limit: Int = 8): [Thought!]!
+  links(limit: Int = 8): [ThoughtLink!]!
+  processingStatus: ProcessingStatus!
+  processingNotes: [String!]!
+  createdAt: String!
+  updatedAt: String!
+}
+
+type GraphNode {
+  thought: Thought!
+  x: Float!
+  y: Float!
+  distance: Int!
+}
+
+type GraphEdge {
+  link: ThoughtLink!
+}
+
+type GraphNeighborhood {
+  center: GraphNode!
+  nodes: [GraphNode!]!
+  edges: [GraphEdge!]!
+}
+
+type SearchCluster {
+  label: String!
+  concepts: [Concept!]!
+  thoughtIds: [ID!]!
+}
+
+type SearchThoughtsResult {
+  thoughts: [Thought!]!
+  clusters: [SearchCluster!]!
+}
+
+type Query {
+  viewer: User!
+  thought(id: ID!): Thought
+  concept(id: ID, name: String): Concept
+  searchThoughts(query: String!): SearchThoughtsResult!
+  graph(centerThoughtId: ID!, distance: Int = 2, limit: Int = 12): GraphNeighborhood!
+  relatedThoughts(thoughtId: ID!, limit: Int = 8): [Thought!]!
+  listThoughtVersions(thoughtId: ID!): [ThoughtVersion!]!
+}
+
+type Mutation {
+  createThought(content: String!): Thought!
+  updateThought(thoughtId: ID!, content: String!): Thought!
+}

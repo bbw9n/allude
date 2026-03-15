@@ -1,0 +1,42 @@
+mutation CreateThought($content: String!) {
+  createThought(content: $content) {
+    id
+    processingStatus
+    currentVersion {
+      id
+      version
+      content
+    }
+    concepts {
+      id
+      name
+    }
+  }
+}
+
+mutation UpdateThought($thoughtId: ID!, $content: String!) {
+  updateThought(thoughtId: $thoughtId, content: $content) {
+    id
+    processingStatus
+    currentVersion {
+      id
+      version
+      content
+    }
+  }
+}
+
+query SearchThoughts($query: String!) {
+  searchThoughts(query: $query) {
+    thoughts {
+      id
+      currentVersion {
+        content
+      }
+    }
+    clusters {
+      label
+      thoughtIds
+    }
+  }
+}
