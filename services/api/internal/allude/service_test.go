@@ -6,137 +6,134 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 )
 
-func eventually(t *testing.T, assertion func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if assertion() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !assertion() {
-		t.Fatal("condition not met before deadline")
-	}
-}
-
-func TestCreateThoughtStoresVersionAndFinishesAnalysis(t *testing.T) {
+func TestCreateThoughtQueuesJobsAndPreservesVersions(t *testing.T) {
 	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
 	created, err := service.CreateThought("Stoicism helps founders endure uncertainty and pressure.")
 	if err != nil {
 		t.Fatalf("create thought: %v", err)
 	}
-	if created.CurrentVersion.Version != 1 {
-		t.Fatalf("expected version 1, got %d", created.CurrentVersion.Version)
+	if len(service.Jobs()) != 1 {
+		t.Fatalf("expected queued job, got %d", len(service.Jobs()))
 	}
-	if created.ProcessingStatus != ProcessingProcessing {
-		t.Fatalf("expected processing status, got %s", created.ProcessingStatus)
+	if err := service.DrainJobs(8); err != nil {
+		t.Fatalf("drain jobs: %v", err)
 	}
-
-	eventually(t, func() bool {
-		hydrated, _ := service.Thought(created.ID)
-		return hydrated != nil && hydrated.ProcessingStatus == ProcessingReady && len(hydrated.Concepts) > 0
-	})
-}
-
-func TestUpdateThoughtCreatesNewVersion(t *testing.T) {
-	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
-	created, _ := service.CreateThought("Creativity blooms when boredom is allowed room.")
-	eventually(t, func() bool {
-		hydrated, _ := service.Thought(created.ID)
-		return hydrated != nil && hydrated.ProcessingStatus == ProcessingReady
-	})
-
-	updated, err := service.UpdateThought(created.ID, "Creativity blooms when boredom and solitude are given room.")
+	hydrated, err := service.Thought(created.ID)
 	if err != nil {
-		t.Fatalf("update thought: %v", err)
+		t.Fatalf("fetch thought: %v", err)
 	}
-	if updated.CurrentVersion.Version != 2 {
-		t.Fatalf("expected version 2, got %d", updated.CurrentVersion.Version)
+	if hydrated.CurrentVersion.VersionNo != 1 {
+		t.Fatalf("expected version 1, got %d", hydrated.CurrentVersion.VersionNo)
 	}
-	versions, err := service.ThoughtVersions(created.ID)
+	if hydrated.ProcessingStatus != ProcessingReady {
+		t.Fatalf("expected ready status, got %s", hydrated.ProcessingStatus)
+	}
+	if len(hydrated.Concepts) == 0 {
+		t.Fatal("expected extracted concepts")
+	}
+
+	updated, err := service.EditThought(created.ID, "Stoicism helps founders endure uncertainty and refine judgment.")
 	if err != nil {
-		t.Fatalf("versions: %v", err)
+		t.Fatalf("edit thought: %v", err)
 	}
-	if len(versions) != 2 {
-		t.Fatalf("expected 2 versions, got %d", len(versions))
+	if updated.CurrentVersion.VersionNo != 2 {
+		t.Fatalf("expected version 2, got %d", updated.CurrentVersion.VersionNo)
 	}
 }
 
-func TestSemanticSearchAndRelatedThoughts(t *testing.T) {
+func TestGraphAndConceptQueriesAfterEnrichment(t *testing.T) {
 	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
 	first, _ := service.CreateThought("Stoicism and boxing both train discipline under discomfort.")
-	second, _ := service.CreateThought("Founder psychology often borrows discipline rituals from martial arts.")
+	second, _ := service.CreateThought("Founder psychology borrows discipline rituals from martial arts.")
 	_, _ = service.CreateThought("Cities can make loneliness feel louder than solitude.")
-
-	eventually(t, func() bool {
-		related, _ := service.RelatedThoughts(first.ID, 8)
-		for _, thought := range related {
-			if thought.ID == second.ID {
-				return true
-			}
-		}
-		return false
-	})
-
-	results, err := service.SearchThoughts("discipline and martial arts")
-	if err != nil {
-		t.Fatalf("search: %v", err)
+	if err := service.DrainJobs(20); err != nil {
+		t.Fatalf("drain jobs: %v", err)
 	}
-	if len(results.Thoughts) < 2 {
-		t.Fatalf("expected search results, got %d", len(results.Thoughts))
-	}
-}
-
-func TestGraphNeighborhoodAndConceptPage(t *testing.T) {
-	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
-	first, _ := service.CreateThought("Stoicism values discipline and reflection.")
-	_, _ = service.CreateThought("Discipline in martial arts can sharpen reflection.")
-
-	eventually(t, func() bool {
-		concept, _ := service.Concept("", "discipline")
-		return concept != nil
-	})
 
 	graph, err := service.Graph(first.ID, 2, 12)
 	if err != nil {
 		t.Fatalf("graph: %v", err)
 	}
 	if graph.Center.Thought.ID != first.ID {
-		t.Fatalf("expected center thought %s, got %s", first.ID, graph.Center.Thought.ID)
+		t.Fatalf("expected center %s, got %s", first.ID, graph.Center.Thought.ID)
+	}
+	related, err := service.repository.GetRelatedThoughts(first.ID, 8)
+	if err != nil {
+		t.Fatalf("related thoughts: %v", err)
+	}
+	found := false
+	for _, thought := range related {
+		if thought.ID == second.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected linked related thought")
 	}
 
-	concept, err := service.Concept("", "discipline")
+	concept, err := service.Concept("", "", "discipline")
 	if err != nil {
-		t.Fatalf("concept: %v", err)
+		t.Fatalf("concept lookup: %v", err)
 	}
 	if concept == nil || len(concept.TopThoughts) == 0 {
 		t.Fatal("expected concept page to include top thoughts")
 	}
 }
 
-func TestGraphQLHandlerCreateThought(t *testing.T) {
+func TestHybridSearchAndCollections(t *testing.T) {
 	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
-	handler := NewGraphQLHandler(service)
+	created, _ := service.CreateThought("Boredom and creativity need silence.")
+	if err := service.DrainJobs(8); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+	collection, err := service.CreateCollection("Creative Inputs", "Notes about creative recovery")
+	if err != nil {
+		t.Fatalf("create collection: %v", err)
+	}
+	if _, err := service.AddThoughtToCollection(collection.ID, created.ID); err != nil {
+		t.Fatalf("add thought to collection: %v", err)
+	}
+	result, err := service.SearchThoughts("creativity silence")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(result.Thoughts) == 0 {
+		t.Fatal("expected search results")
+	}
+}
+
+func TestGraphQLServerSupportsQueriesAndMutations(t *testing.T) {
+	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
+	server, err := NewGraphQLServer(service)
+	if err != nil {
+		t.Fatalf("schema: %v", err)
+	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"query": "mutation CreateThought($content: String!) { createThought(content: $content) { id processingStatus currentVersion { version } } }",
+		"query": "mutation CreateThought($content: String!) { createThought(content: $content) { id processingStatus currentVersion { id version content } } }",
 		"variables": map[string]interface{}{
 			"content": "Boredom creates space for reflection.",
 		},
 	})
-
 	request := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
+	server.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", response.Code)
+		t.Fatalf("expected status 200, got %d", response.Code)
 	}
-	if !bytes.Contains(response.Body.Bytes(), []byte("createThought")) {
-		t.Fatalf("expected GraphQL payload, got %s", response.Body.String())
+	if err := service.DrainJobs(8); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+
+	searchBody, _ := json.Marshal(map[string]interface{}{
+		"query": "{ searchThoughts(query: \"reflection\") { thoughts { id concepts { canonicalName } } } }",
+	})
+	searchRequest := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(searchBody))
+	searchResponse := httptest.NewRecorder()
+	server.ServeHTTP(searchResponse, searchRequest)
+	if !bytes.Contains(searchResponse.Body.Bytes(), []byte("searchThoughts")) {
+		t.Fatalf("expected searchThoughts payload, got %s", searchResponse.Body.String())
 	}
 }

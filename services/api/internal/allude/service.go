@@ -1,6 +1,7 @@
 package allude
 
 import (
+	"context"
 	"errors"
 	"strings"
 )
@@ -8,13 +9,24 @@ import (
 type Service struct {
 	repository Repository
 	ai         AIProvider
+	runner     *JobRunner
 }
 
 func NewService(repository Repository, ai AIProvider) *Service {
-	return &Service{
+	service := &Service{
 		repository: repository,
 		ai:         ai,
 	}
+	service.runner = NewJobRunner(repository, service, "worker-dev")
+	return service
+}
+
+func (service *Service) StartWorkers(ctx context.Context) {
+	go service.runner.Start(ctx)
+}
+
+func (service *Service) DrainJobs(maxJobs int) error {
+	return service.runner.Drain(context.Background(), maxJobs)
 }
 
 func (service *Service) Viewer() *User {
@@ -26,17 +38,35 @@ func (service *Service) CreateThought(content string) (*Thought, error) {
 	if err != nil {
 		return nil, err
 	}
-	go service.AnalyzeThought(thought.ID)
-	return thought, nil
+	_, err = service.repository.EnqueueJob(&Job{
+		Type:        JobEmbedThoughtVersion,
+		EntityType:  "thought_version",
+		EntityID:    thought.CurrentVersion.ID,
+		MaxAttempts: 3,
+		Payload: map[string]string{
+			"thoughtVersionId": thought.CurrentVersion.ID,
+			"thoughtId":        thought.ID,
+		},
+	})
+	return thought, err
 }
 
-func (service *Service) UpdateThought(thoughtID, content string) (*Thought, error) {
+func (service *Service) EditThought(thoughtID, content string) (*Thought, error) {
 	thought, err := service.repository.UpdateThought(thoughtID, strings.TrimSpace(content))
 	if err != nil {
 		return nil, err
 	}
-	go service.AnalyzeThought(thought.ID)
-	return thought, nil
+	_, err = service.repository.EnqueueJob(&Job{
+		Type:        JobEmbedThoughtVersion,
+		EntityType:  "thought_version",
+		EntityID:    thought.CurrentVersion.ID,
+		MaxAttempts: 3,
+		Payload: map[string]string{
+			"thoughtVersionId": thought.CurrentVersion.ID,
+			"thoughtId":        thought.ID,
+		},
+	})
+	return thought, err
 }
 
 func (service *Service) Thought(id string) (*Thought, error) {
@@ -48,83 +78,145 @@ func (service *Service) SearchThoughts(query string) (*SearchThoughtsResult, err
 	if err != nil {
 		return nil, err
 	}
-	return service.repository.SearchThoughtsByEmbedding(embedding, query, 12)
+	return service.repository.SearchThoughts(query, embedding, 12)
 }
 
-func (service *Service) Graph(centerThoughtID string, distance, limit int) (*GraphNeighborhood, error) {
-	return service.repository.GetGraphNeighborhood(centerThoughtID, distance, limit)
+func (service *Service) Graph(centerThoughtID string, hopCount, limit int) (*GraphNeighborhood, error) {
+	return service.repository.GetGraphNeighborhood(centerThoughtID, hopCount, limit)
 }
 
-func (service *Service) RelatedThoughts(thoughtID string, limit int) ([]*Thought, error) {
-	return service.repository.GetRelatedThoughts(thoughtID, limit)
-}
-
-func (service *Service) ThoughtVersions(thoughtID string) ([]*ThoughtVersion, error) {
-	return service.repository.ListThoughtVersions(thoughtID)
-}
-
-func (service *Service) Concept(id, name string) (*Concept, error) {
+func (service *Service) Concept(id, slug, name string) (*Concept, error) {
 	if id != "" {
 		return service.repository.GetConceptByID(id)
+	}
+	if slug != "" {
+		return service.repository.GetConceptBySlug(slug)
 	}
 	if name != "" {
 		return service.repository.GetConceptByName(name)
 	}
-	return nil, errors.New("concept requires id or name")
+	return nil, errors.New("concept requires id, slug, or name")
 }
 
-func (service *Service) AnalyzeThought(thoughtID string) {
+func (service *Service) CreateCollection(title, description string) (*Collection, error) {
+	return service.repository.CreateCollection(ViewerID, title, description)
+}
+
+func (service *Service) AddThoughtToCollection(collectionID, thoughtID string) (*Collection, error) {
+	return service.repository.AddThoughtToCollection(collectionID, thoughtID)
+}
+
+func (service *Service) Collection(id string) (*Collection, error) {
+	return service.repository.GetCollection(id)
+}
+
+func (service *Service) RecordEngagement(entityType, entityID, actionType string, dwellMS int) (*EngagementEvent, error) {
+	return service.repository.RecordEngagement(&EngagementEvent{
+		UserID:     ViewerID,
+		EntityType: entityType,
+		EntityID:   entityID,
+		ActionType: actionType,
+		DwellMS:    dwellMS,
+	})
+}
+
+func (service *Service) Jobs() []*Job {
+	return service.repository.ListJobs()
+}
+
+func (service *Service) enrichThoughtVersion(versionID, thoughtID string) error {
 	thought, err := service.repository.GetThought(thoughtID)
-	if err != nil || thought == nil || thought.CurrentVersion == nil {
-		return
+	if err != nil {
+		return err
+	}
+	var version *ThoughtVersion
+	for _, candidate := range thought.Versions {
+		if candidate.ID == versionID {
+			version = candidate
+			break
+		}
+	}
+	if version == nil {
+		return errors.New("version not found")
 	}
 
-	analysis, err := service.ai.AnalyzeThought(thought.CurrentVersion.Content)
+	analysis, err := service.ai.AnalyzeThought(version.Content)
 	if err != nil {
-		_, _ = service.repository.SaveThoughtAnalysis(thoughtID, thought.Embedding, conceptNames(thought.Concepts), ProcessingPartial, []string{err.Error()})
-		return
+		_, _ = service.repository.SaveThoughtVersionEnrichment(versionID, version.Embedding, nil, ProcessingPartial, []string{err.Error()})
+		return err
 	}
-
-	updated, err := service.repository.SaveThoughtAnalysis(thoughtID, analysis.Embedding, analysis.Concepts, ProcessingReady, analysis.Notes)
+	enrichedVersion, err := service.repository.SaveThoughtVersionEnrichment(versionID, analysis.Embedding, analysis.Concepts, ProcessingReady, analysis.Notes)
 	if err != nil {
-		return
+		return err
 	}
-
-	searchResult, err := service.repository.SearchThoughtsByEmbedding(analysis.Embedding, updated.CurrentVersion.Content, 6)
+	if _, err := service.repository.EnqueueJob(&Job{
+		Type:        JobLinkThought,
+		EntityType:  "thought",
+		EntityID:    thoughtID,
+		MaxAttempts: 3,
+		Payload: map[string]string{
+			"thoughtVersionId": enrichedVersion.ID,
+			"thoughtId":        thoughtID,
+		},
+	}); err != nil {
+		return err
+	}
+	latestThought, err := service.repository.GetThought(thoughtID)
 	if err != nil {
-		return
+		return nil
+	}
+	for _, concept := range latestThought.Concepts {
+		_, _ = service.repository.EnqueueJob(&Job{
+			Type:        JobRefreshConceptSummary,
+			EntityType:  "concept",
+			EntityID:    concept.ID,
+			MaxAttempts: 3,
+			Payload:     map[string]string{"conceptId": concept.ID},
+		})
+	}
+	return nil
+}
+
+func (service *Service) linkThought(thoughtID string) error {
+	thought, err := service.repository.GetThought(thoughtID)
+	if err != nil {
+		return err
+	}
+	if thought.CurrentVersion == nil {
+		return nil
+	}
+	searchResult, err := service.repository.SearchThoughts(thought.CurrentVersion.Content, thought.CurrentVersion.Embedding, 12)
+	if err != nil {
+		return err
 	}
 
 	var links []*ThoughtLink
 	for _, candidate := range searchResult.Thoughts {
-		if candidate.ID == updated.ID || len(candidate.Embedding) == 0 {
+		if candidate.ID == thought.ID || candidate.CurrentVersion == nil {
 			continue
 		}
-		score := combinedRelationshipScore(updated, candidate, analysis.Embedding)
-		if score <= 0.28 {
+		score := combinedRelationshipScore(thought, candidate)
+		if score < 0.28 {
 			continue
 		}
 		links = append(links, &ThoughtLink{
-			SourceThoughtID: updated.ID,
+			SourceThoughtID: thought.ID,
 			TargetThoughtID: candidate.ID,
-			RelationType:    relationTypeForThoughts(updated, candidate),
-			Score:           score,
-			Origin:          "analysis",
+			RelationType:    relationTypeForThoughts(thought, candidate),
+			Weight:          score,
+			Source:          "analysis",
+			Explanation:     "Ranked from vector similarity and concept overlap",
 		})
 	}
-	_ = service.repository.ReplaceThoughtLinks(updated.ID, links)
+	return service.repository.ReplaceThoughtLinks(thought.ID, links)
 }
 
-func conceptNames(concepts []*Concept) []string {
-	var names []string
-	for _, concept := range concepts {
-		names = append(names, concept.Name)
-	}
-	return names
+func (service *Service) refreshConceptSummary(_ string) error {
+	return nil
 }
 
-func combinedRelationshipScore(source, target *Thought, sourceEmbedding []float64) float64 {
-	base := cosineSimilarity(sourceEmbedding, target.Embedding)
+func combinedRelationshipScore(source, target *Thought) float64 {
+	base := cosineSimilarity(source.CurrentVersion.Embedding, target.CurrentVersion.Embedding)
 	overlap := conceptOverlap(source, target)
 	return (base * 0.7) + (overlap * 0.3)
 }
@@ -135,11 +227,11 @@ func conceptOverlap(source, target *Thought) float64 {
 	}
 	sourceConcepts := map[string]struct{}{}
 	for _, concept := range source.Concepts {
-		sourceConcepts[concept.Name] = struct{}{}
+		sourceConcepts[concept.CanonicalName] = struct{}{}
 	}
 	matches := 0
 	for _, concept := range target.Concepts {
-		if _, exists := sourceConcepts[concept.Name]; exists {
+		if _, exists := sourceConcepts[concept.CanonicalName]; exists {
 			matches++
 		}
 	}
@@ -154,9 +246,9 @@ func conceptOverlap(source, target *Thought) float64 {
 }
 
 func relationTypeForThoughts(source, target *Thought) RelationType {
-	if strings.Contains(strings.ToLower(source.CurrentVersion.Content), "not") ||
-		strings.Contains(strings.ToLower(target.CurrentVersion.Content), "not") ||
-		strings.Contains(strings.ToLower(source.CurrentVersion.Content), "against") {
+	sourceContent := strings.ToLower(source.CurrentVersion.Content)
+	targetContent := strings.ToLower(target.CurrentVersion.Content)
+	if strings.Contains(sourceContent, "not") || strings.Contains(targetContent, "not") || strings.Contains(sourceContent, "against") {
 		return RelationContradict
 	}
 	sourceConcepts := map[string]struct{}{}

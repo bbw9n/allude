@@ -19,24 +19,48 @@ const (
 	RelationExampleOf  RelationType = "example_of"
 )
 
+type JobStatus string
+
+const (
+	JobPending   JobStatus = "PENDING"
+	JobLeased    JobStatus = "LEASED"
+	JobCompleted JobStatus = "COMPLETED"
+	JobDead      JobStatus = "DEAD"
+)
+
+type JobType string
+
+const (
+	JobEmbedThoughtVersion   JobType = "embed_thought_version"
+	JobExtractConcepts       JobType = "extract_concepts"
+	JobLinkThought           JobType = "link_thought"
+	JobRefreshConceptSummary JobType = "refresh_concept_summary"
+)
+
 type User struct {
-	ID        string   `json:"id"`
-	Username  string   `json:"username"`
-	Bio       string   `json:"bio,omitempty"`
-	Interests []string `json:"interests"`
+	ID          string   `json:"id"`
+	Username    string   `json:"username"`
+	DisplayName string   `json:"displayName,omitempty"`
+	Bio         string   `json:"bio,omitempty"`
+	AvatarURL   string   `json:"avatarUrl,omitempty"`
+	Interests   []string `json:"interests"`
+	CreatedAt   string   `json:"createdAt"`
+	UpdatedAt   string   `json:"updatedAt"`
 }
 
 type Thought struct {
 	ID               string            `json:"id"`
 	Author           *User             `json:"author,omitempty"`
 	AuthorID         string            `json:"-"`
+	Status           string            `json:"status"`
+	Visibility       string            `json:"visibility"`
 	CurrentVersionID string            `json:"-"`
-	Embedding        []float64         `json:"-"`
 	CurrentVersion   *ThoughtVersion   `json:"currentVersion"`
 	Versions         []*ThoughtVersion `json:"versions,omitempty"`
 	Concepts         []*Concept        `json:"concepts"`
 	RelatedThoughts  []*Thought        `json:"relatedThoughts,omitempty"`
 	Links            []*ThoughtLink    `json:"links,omitempty"`
+	Collections      []*Collection     `json:"collections,omitempty"`
 	ProcessingStatus ProcessingStatus  `json:"processingStatus"`
 	ProcessingNotes  []string          `json:"processingNotes"`
 	CreatedAt        string            `json:"createdAt"`
@@ -44,21 +68,45 @@ type Thought struct {
 }
 
 type ThoughtVersion struct {
-	ID        string `json:"id"`
-	ThoughtID string `json:"thoughtId"`
-	Version   int    `json:"version"`
-	Content   string `json:"content"`
-	CreatedAt string `json:"createdAt"`
+	ID               string           `json:"id"`
+	ThoughtID        string           `json:"thoughtId"`
+	VersionNo        int              `json:"version"`
+	Content          string           `json:"content"`
+	Embedding        []float64        `json:"-"`
+	Language         string           `json:"language,omitempty"`
+	TokenCount       int              `json:"tokenCount"`
+	ProcessingStatus ProcessingStatus `json:"processingStatus"`
+	ProcessingNotes  []string         `json:"processingNotes"`
+	CreatedAt        string           `json:"createdAt"`
 }
 
 type Concept struct {
-	ID              string     `json:"id"`
-	Name            string     `json:"name"`
-	NormalizedName  string     `json:"-"`
-	Embedding       []float64  `json:"-"`
-	CreatedAt       string     `json:"createdAt"`
-	RelatedConcepts []*Concept `json:"relatedConcepts,omitempty"`
-	TopThoughts     []*Thought `json:"topThoughts,omitempty"`
+	ID              string          `json:"id"`
+	CanonicalName   string          `json:"canonicalName"`
+	Slug            string          `json:"slug"`
+	Description     string          `json:"description,omitempty"`
+	Embedding       []float64       `json:"-"`
+	ConceptType     string          `json:"conceptType,omitempty"`
+	Aliases         []*ConceptAlias `json:"aliases,omitempty"`
+	RelatedConcepts []*Concept      `json:"relatedConcepts,omitempty"`
+	TopThoughts     []*Thought      `json:"topThoughts,omitempty"`
+	CreatedAt       string          `json:"createdAt"`
+	UpdatedAt       string          `json:"updatedAt"`
+}
+
+type ConceptAlias struct {
+	ID              string `json:"id"`
+	ConceptID       string `json:"conceptId"`
+	Alias           string `json:"alias"`
+	NormalizedAlias string `json:"normalizedAlias"`
+}
+
+type ThoughtConcept struct {
+	ThoughtVersionID string  `json:"thoughtVersionId"`
+	ConceptID        string  `json:"conceptId"`
+	Weight           float64 `json:"weight"`
+	Source           string  `json:"source"`
+	CreatedAt        string  `json:"createdAt"`
 }
 
 type ThoughtLink struct {
@@ -66,16 +114,50 @@ type ThoughtLink struct {
 	SourceThoughtID string       `json:"sourceThoughtId"`
 	TargetThoughtID string       `json:"targetThoughtId"`
 	RelationType    RelationType `json:"relationType"`
-	Score           float64      `json:"score"`
-	Origin          string       `json:"origin"`
+	Weight          float64      `json:"weight"`
+	Source          string       `json:"source"`
+	Explanation     string       `json:"explanation,omitempty"`
+	CreatedAt       string       `json:"createdAt"`
+}
+
+type ConceptLink struct {
+	ID              string       `json:"id"`
+	SourceConceptID string       `json:"sourceConceptId"`
+	TargetConceptID string       `json:"targetConceptId"`
+	RelationType    RelationType `json:"relationType"`
+	Weight          float64      `json:"weight"`
+	Source          string       `json:"source"`
+	Explanation     string       `json:"explanation,omitempty"`
 	CreatedAt       string       `json:"createdAt"`
 }
 
 type Collection struct {
-	ID          string `json:"id"`
-	CuratorID   string `json:"curatorId"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ID          string            `json:"id"`
+	CuratorID   string            `json:"curatorId"`
+	Title       string            `json:"title"`
+	Description string            `json:"description"`
+	Visibility  string            `json:"visibility"`
+	Items       []*CollectionItem `json:"items,omitempty"`
+	CreatedAt   string            `json:"createdAt"`
+	UpdatedAt   string            `json:"updatedAt"`
+}
+
+type CollectionItem struct {
+	CollectionID string   `json:"collectionId"`
+	ThoughtID    string   `json:"thoughtId"`
+	Position     int      `json:"position"`
+	AddedAt      string   `json:"addedAt"`
+	Thought      *Thought `json:"thought,omitempty"`
+}
+
+type EngagementEvent struct {
+	ID         string `json:"id"`
+	UserID     string `json:"userId,omitempty"`
+	EntityType string `json:"entityType"`
+	EntityID   string `json:"entityId"`
+	ActionType string `json:"actionType"`
+	DwellMS    int    `json:"dwellMs,omitempty"`
+	CreatedAt  string `json:"createdAt"`
 }
 
 type GraphNode struct {
@@ -105,4 +187,20 @@ type SearchCluster struct {
 type SearchThoughtsResult struct {
 	Thoughts []*Thought       `json:"thoughts"`
 	Clusters []*SearchCluster `json:"clusters"`
+}
+
+type Job struct {
+	ID           string            `json:"id"`
+	Type         JobType           `json:"type"`
+	EntityType   string            `json:"entityType"`
+	EntityID     string            `json:"entityId"`
+	Status       JobStatus         `json:"status"`
+	AttemptCount int               `json:"attemptCount"`
+	MaxAttempts  int               `json:"maxAttempts"`
+	Payload      map[string]string `json:"payload"`
+	LastError    string            `json:"lastError,omitempty"`
+	LeaseOwner   string            `json:"leaseOwner,omitempty"`
+	VisibleAt    string            `json:"visibleAt"`
+	CreatedAt    string            `json:"createdAt"`
+	UpdatedAt    string            `json:"updatedAt"`
 }

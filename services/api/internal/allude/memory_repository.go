@@ -8,33 +8,50 @@ import (
 	"sync"
 )
 
-type thoughtRecord struct {
-	Thought *Thought
-}
-
 type InMemoryRepository struct {
-	mu              sync.RWMutex
-	viewer          *User
-	thoughts        map[string]*Thought
-	versions        map[string][]*ThoughtVersion
-	concepts        map[string]*Concept
-	thoughtConcepts map[string]map[string]struct{}
-	thoughtLinks    map[string]*ThoughtLink
+	mu                sync.RWMutex
+	viewer            *User
+	thoughts          map[string]*Thought
+	versions          map[string]*ThoughtVersion
+	versionsByThought map[string][]string
+	concepts          map[string]*Concept
+	aliases           map[string]*ConceptAlias
+	thoughtConcepts   map[string]map[string]*ThoughtConcept
+	thoughtLinks      map[string]*ThoughtLink
+	conceptLinks      map[string]*ConceptLink
+	collections       map[string]*Collection
+	collectionItems   map[string][]*CollectionItem
+	engagementEvents  map[string]*EngagementEvent
+	jobs              map[string]*Job
+	jobOrder          []string
 }
 
 func NewInMemoryRepository() *InMemoryRepository {
+	now := nowISO()
+	viewer := &User{
+		ID:          ViewerID,
+		Username:    "allude-dev",
+		DisplayName: "Allude Dev",
+		Bio:         "Seeded development identity",
+		Interests:   []string{"philosophy", "creativity", "systems"},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
 	return &InMemoryRepository{
-		viewer: &User{
-			ID:        ViewerID,
-			Username:  "allude-dev",
-			Bio:       "A local development identity for Allude.",
-			Interests: []string{"philosophy", "creativity", "systems"},
-		},
-		thoughts:        map[string]*Thought{},
-		versions:        map[string][]*ThoughtVersion{},
-		concepts:        map[string]*Concept{},
-		thoughtConcepts: map[string]map[string]struct{}{},
-		thoughtLinks:    map[string]*ThoughtLink{},
+		viewer:            viewer,
+		thoughts:          map[string]*Thought{},
+		versions:          map[string]*ThoughtVersion{},
+		versionsByThought: map[string][]string{},
+		concepts:          map[string]*Concept{},
+		aliases:           map[string]*ConceptAlias{},
+		thoughtConcepts:   map[string]map[string]*ThoughtConcept{},
+		thoughtLinks:      map[string]*ThoughtLink{},
+		conceptLinks:      map[string]*ConceptLink{},
+		collections:       map[string]*Collection{},
+		collectionItems:   map[string][]*CollectionItem{},
+		engagementEvents:  map[string]*EngagementEvent{},
+		jobs:              map[string]*Job{},
+		jobOrder:          []string{},
 	}
 }
 
@@ -52,27 +69,33 @@ func (repository *InMemoryRepository) CreateThought(authorID, content string) (*
 	thoughtID := createID("thought")
 	versionID := createID("version")
 	version := &ThoughtVersion{
-		ID:        versionID,
-		ThoughtID: thoughtID,
-		Version:   1,
-		Content:   content,
-		CreatedAt: now,
+		ID:               versionID,
+		ThoughtID:        thoughtID,
+		VersionNo:        1,
+		Content:          content,
+		TokenCount:       len(strings.Fields(content)),
+		Language:         "en",
+		ProcessingStatus: ProcessingPending,
+		ProcessingNotes:  []string{"Queued for enrichment"},
+		CreatedAt:        now,
 	}
 	thought := &Thought{
 		ID:               thoughtID,
 		AuthorID:         authorID,
+		Status:           "active",
+		Visibility:       "public",
 		CurrentVersionID: versionID,
-		Embedding:        nil,
-		ProcessingStatus: ProcessingProcessing,
-		ProcessingNotes:  []string{"Queued for analysis"},
+		ProcessingStatus: ProcessingPending,
+		ProcessingNotes:  []string{"Queued for enrichment"},
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
 
 	repository.thoughts[thoughtID] = thought
-	repository.versions[thoughtID] = []*ThoughtVersion{version}
-	repository.thoughtConcepts[thoughtID] = map[string]struct{}{}
-	return repository.buildThoughtLocked(thoughtID, true, true)
+	repository.versions[versionID] = version
+	repository.versionsByThought[thoughtID] = []string{versionID}
+	repository.thoughtConcepts[versionID] = map[string]*ThoughtConcept{}
+	return repository.hydrateThoughtLocked(thoughtID, true, true)
 }
 
 func (repository *InMemoryRepository) UpdateThought(thoughtID, content string) (*Thought, error) {
@@ -84,200 +107,155 @@ func (repository *InMemoryRepository) UpdateThought(thoughtID, content string) (
 		return nil, errors.New("thought not found")
 	}
 
+	now := nowISO()
 	versionID := createID("version")
 	version := &ThoughtVersion{
-		ID:        versionID,
-		ThoughtID: thoughtID,
-		Version:   len(repository.versions[thoughtID]) + 1,
-		Content:   content,
-		CreatedAt: nowISO(),
+		ID:               versionID,
+		ThoughtID:        thoughtID,
+		VersionNo:        len(repository.versionsByThought[thoughtID]) + 1,
+		Content:          content,
+		TokenCount:       len(strings.Fields(content)),
+		Language:         "en",
+		ProcessingStatus: ProcessingPending,
+		ProcessingNotes:  []string{"Queued for enrichment"},
+		CreatedAt:        now,
 	}
-	repository.versions[thoughtID] = append(repository.versions[thoughtID], version)
+	repository.versions[versionID] = version
+	repository.versionsByThought[thoughtID] = append(repository.versionsByThought[thoughtID], versionID)
+	repository.thoughtConcepts[versionID] = map[string]*ThoughtConcept{}
 	thought.CurrentVersionID = versionID
-	thought.ProcessingStatus = ProcessingProcessing
-	thought.ProcessingNotes = []string{"Queued for analysis"}
-	thought.UpdatedAt = nowISO()
-	return repository.buildThoughtLocked(thoughtID, true, true)
+	thought.ProcessingStatus = ProcessingPending
+	thought.ProcessingNotes = []string{"Queued for enrichment"}
+	thought.UpdatedAt = now
+	return repository.hydrateThoughtLocked(thoughtID, true, true)
 }
 
 func (repository *InMemoryRepository) GetThought(thoughtID string) (*Thought, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-	return repository.buildThoughtLocked(thoughtID, true, true)
+	return repository.hydrateThoughtLocked(thoughtID, true, true)
 }
 
 func (repository *InMemoryRepository) ListThoughtVersions(thoughtID string) ([]*ThoughtVersion, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-
-	versions, exists := repository.versions[thoughtID]
+	ids, exists := repository.versionsByThought[thoughtID]
 	if !exists {
 		return nil, errors.New("thought not found")
 	}
-
-	clones := make([]*ThoughtVersion, 0, len(versions))
-	for _, version := range versions {
-		clones = append(clones, cloneVersion(version))
+	versions := make([]*ThoughtVersion, 0, len(ids))
+	for _, id := range ids {
+		versions = append(versions, cloneVersion(repository.versions[id]))
 	}
-	return clones, nil
+	return versions, nil
 }
 
-func (repository *InMemoryRepository) SaveThoughtAnalysis(thoughtID string, embedding []float64, conceptNames []string, status ProcessingStatus, notes []string) (*Thought, error) {
+func (repository *InMemoryRepository) SaveThoughtVersionEnrichment(versionID string, embedding []float64, conceptNames []string, status ProcessingStatus, notes []string) (*ThoughtVersion, error) {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
 
-	thought, exists := repository.thoughts[thoughtID]
+	version, exists := repository.versions[versionID]
 	if !exists {
-		return nil, errors.New("thought not found")
+		return nil, errors.New("version not found")
 	}
 
-	thought.Embedding = append([]float64(nil), embedding...)
-	thought.ProcessingStatus = status
-	thought.ProcessingNotes = append([]string(nil), notes...)
-	thought.UpdatedAt = nowISO()
-	repository.thoughtConcepts[thoughtID] = map[string]struct{}{}
+	version.Embedding = append([]float64(nil), embedding...)
+	version.ProcessingStatus = status
+	version.ProcessingNotes = append([]string(nil), notes...)
+	repository.thoughtConcepts[versionID] = map[string]*ThoughtConcept{}
 
-	for _, raw := range conceptNames {
-		normalized := normalizeConceptName(raw)
-		if normalized == "" {
-			continue
+	for _, raw := range uniqueStrings(conceptNames) {
+		concept := repository.upsertConceptLocked(raw)
+		repository.thoughtConcepts[versionID][concept.ID] = &ThoughtConcept{
+			ThoughtVersionID: versionID,
+			ConceptID:        concept.ID,
+			Weight:           1.0,
+			Source:           "ai",
+			CreatedAt:        nowISO(),
 		}
-		var concept *Concept
-		for _, existing := range repository.concepts {
-			if existing.NormalizedName == normalized {
-				concept = existing
-				break
-			}
-		}
-		if concept == nil {
-			concept = &Concept{
-				ID:             createID("concept"),
-				Name:           strings.TrimSpace(raw),
-				NormalizedName: normalized,
-				CreatedAt:      nowISO(),
-			}
-			repository.concepts[concept.ID] = concept
-		}
-		repository.thoughtConcepts[thoughtID][concept.ID] = struct{}{}
 	}
 
-	return repository.buildThoughtLocked(thoughtID, true, true)
+	thought := repository.thoughts[version.ThoughtID]
+	if thought.CurrentVersionID == versionID {
+		thought.ProcessingStatus = status
+		thought.ProcessingNotes = append([]string(nil), notes...)
+		thought.UpdatedAt = nowISO()
+	}
+
+	repository.refreshConceptLinksLocked()
+	return cloneVersion(version), nil
 }
 
-func (repository *InMemoryRepository) SearchThoughtsByEmbedding(embedding []float64, _ string, limit int) (*SearchThoughtsResult, error) {
+func (repository *InMemoryRepository) SearchThoughts(query string, embedding []float64, limit int) (*SearchThoughtsResult, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
 
-	type scored struct {
-		ThoughtID string
-		Score     float64
+	type scoredThought struct {
+		Thought *Thought
+		Score   float64
 	}
-	var scoredThoughts []scored
-	for thoughtID, thought := range repository.thoughts {
-		if len(thought.Embedding) == 0 {
+
+	queryLower := strings.ToLower(strings.TrimSpace(query))
+	var ranked []scoredThought
+	for thoughtID := range repository.thoughts {
+		thought, err := repository.hydrateThoughtLocked(thoughtID, false, false)
+		if err != nil || thought.CurrentVersion == nil {
 			continue
 		}
-		scoredThoughts = append(scoredThoughts, scored{
-			ThoughtID: thoughtID,
-			Score:     cosineSimilarity(embedding, thought.Embedding),
-		})
-	}
-	sort.Slice(scoredThoughts, func(i, j int) bool {
-		return scoredThoughts[i].Score > scoredThoughts[j].Score
-	})
-	if len(scoredThoughts) > limit {
-		scoredThoughts = scoredThoughts[:limit]
+		lexical := lexicalScore(queryLower, thought.CurrentVersion.Content, thought.Concepts)
+		semantic := cosineSimilarity(embedding, thought.CurrentVersion.Embedding)
+		quality := repository.qualityScoreLocked(thought.ID)
+		score := (0.35 * lexical) + (0.45 * semantic) + (0.20 * quality)
+		if score <= 0 {
+			continue
+		}
+		ranked = append(ranked, scoredThought{Thought: thought, Score: score})
 	}
 
-	thoughts := make([]*Thought, 0, len(scoredThoughts))
-	conceptCounts := map[string]struct {
-		Concept    *Concept
-		ThoughtIDs map[string]struct{}
-	}{}
-	for _, entry := range scoredThoughts {
-		thought, err := repository.buildThoughtLocked(entry.ThoughtID, false, false)
-		if err != nil {
-			return nil, err
-		}
-		thoughts = append(thoughts, thought)
-		for _, concept := range thought.Concepts {
-			current := conceptCounts[concept.ID]
-			if current.ThoughtIDs == nil {
-				current = struct {
-					Concept    *Concept
-					ThoughtIDs map[string]struct{}
-				}{
-					Concept:    cloneConceptBase(concept),
-					ThoughtIDs: map[string]struct{}{},
+	sort.Slice(ranked, func(i, j int) bool {
+		return ranked[i].Score > ranked[j].Score
+	})
+	if len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+
+	result := &SearchThoughtsResult{}
+	clusterMap := map[string]*SearchCluster{}
+	for _, entry := range ranked {
+		result.Thoughts = append(result.Thoughts, entry.Thought)
+		for _, concept := range entry.Thought.Concepts {
+			cluster, exists := clusterMap[concept.ID]
+			if !exists {
+				cluster = &SearchCluster{
+					Label:      concept.CanonicalName,
+					Concepts:   []*Concept{cloneConceptBase(concept)},
+					ThoughtIDs: []string{},
 				}
+				clusterMap[concept.ID] = cluster
 			}
-			current.ThoughtIDs[thought.ID] = struct{}{}
-			conceptCounts[concept.ID] = current
+			cluster.ThoughtIDs = appendUniqueString(cluster.ThoughtIDs, entry.Thought.ID)
 		}
 	}
 
-	var clusters []*SearchCluster
-	for _, entry := range conceptCounts {
-		var thoughtIDs []string
-		for thoughtID := range entry.ThoughtIDs {
-			thoughtIDs = append(thoughtIDs, thoughtID)
-		}
-		sort.Strings(thoughtIDs)
-		clusters = append(clusters, &SearchCluster{
-			Label:      entry.Concept.Name,
-			Concepts:   []*Concept{cloneConceptBase(entry.Concept)},
-			ThoughtIDs: thoughtIDs,
-		})
+	for _, cluster := range clusterMap {
+		result.Clusters = append(result.Clusters, cluster)
 	}
-	sort.Slice(clusters, func(i, j int) bool {
-		return len(clusters[i].ThoughtIDs) > len(clusters[j].ThoughtIDs)
+	sort.Slice(result.Clusters, func(i, j int) bool {
+		return len(result.Clusters[i].ThoughtIDs) > len(result.Clusters[j].ThoughtIDs)
 	})
-	if len(clusters) > 4 {
-		clusters = clusters[:4]
+	if len(result.Clusters) > 4 {
+		result.Clusters = result.Clusters[:4]
 	}
-
-	return &SearchThoughtsResult{
-		Thoughts: thoughts,
-		Clusters: clusters,
-	}, nil
+	return result, nil
 }
 
 func (repository *InMemoryRepository) GetRelatedThoughts(thoughtID string, limit int) ([]*Thought, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-
-	var links []*ThoughtLink
-	for _, link := range repository.thoughtLinks {
-		if link.SourceThoughtID == thoughtID || link.TargetThoughtID == thoughtID {
-			links = append(links, link)
-		}
-	}
-	sort.Slice(links, func(i, j int) bool {
-		return links[i].Score > links[j].Score
-	})
-	if len(links) > limit {
-		links = links[:limit]
-	}
-	seen := map[string]struct{}{}
-	var related []*Thought
-	for _, link := range links {
-		targetID := link.SourceThoughtID
-		if targetID == thoughtID {
-			targetID = link.TargetThoughtID
-		}
-		if _, exists := seen[targetID]; exists {
-			continue
-		}
-		seen[targetID] = struct{}{}
-		thought, err := repository.buildThoughtLocked(targetID, false, false)
-		if err == nil {
-			related = append(related, thought)
-		}
-	}
-	return related, nil
+	return repository.relatedThoughtsLocked(thoughtID, limit), nil
 }
 
-func (repository *InMemoryRepository) GetGraphNeighborhood(centerThoughtID string, distance, limit int) (*GraphNeighborhood, error) {
+func (repository *InMemoryRepository) GetGraphNeighborhood(centerThoughtID string, hopCount, limit int) (*GraphNeighborhood, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
 
@@ -288,32 +266,44 @@ func (repository *InMemoryRepository) GetGraphNeighborhood(centerThoughtID strin
 
 	queue := []queueItem{{ThoughtID: centerThoughtID, Distance: 0}}
 	visited := map[string]struct{}{}
-	var nodes []*GraphNode
-	edgeMap := map[string]*ThoughtLink{}
+	dominantConceptCount := map[string]int{}
+	nodes := []*GraphNode{}
+	edges := []*GraphEdge{}
+	edgeSeen := map[string]struct{}{}
 
 	for len(queue) > 0 && len(nodes) < limit {
 		current := queue[0]
 		queue = queue[1:]
-		if _, seen := visited[current.ThoughtID]; seen || current.Distance > distance {
+		if current.Distance > hopCount {
 			continue
 		}
-		visited[current.ThoughtID] = struct{}{}
-		thought, err := repository.buildThoughtLocked(current.ThoughtID, false, false)
+		if _, exists := visited[current.ThoughtID]; exists {
+			continue
+		}
+		thought, err := repository.hydrateThoughtLocked(current.ThoughtID, false, false)
 		if err != nil {
 			continue
 		}
+		dominantConcept := dominantConceptName(thought)
+		if dominantConcept != "" && current.Distance > 0 && dominantConceptCount[dominantConcept] >= 2 {
+			continue
+		}
+		visited[current.ThoughtID] = struct{}{}
+		if dominantConcept != "" {
+			dominantConceptCount[dominantConcept]++
+		}
 		nodes = append(nodes, repository.layoutNode(thought, current.Distance, len(nodes)))
 
-		for _, link := range repository.thoughtLinks {
-			if link.SourceThoughtID != current.ThoughtID && link.TargetThoughtID != current.ThoughtID {
-				continue
+		for _, link := range repository.sortedLinksForThoughtLocked(current.ThoughtID) {
+			if _, exists := edgeSeen[link.ID]; !exists {
+				edges = append(edges, &GraphEdge{Link: cloneLink(link)})
+				edgeSeen[link.ID] = struct{}{}
 			}
-			edgeMap[link.ID] = cloneLink(link)
 			nextID := link.SourceThoughtID
 			if nextID == current.ThoughtID {
 				nextID = link.TargetThoughtID
 			}
-			if _, seen := visited[nextID]; !seen {
+			if _, exists := visited[nextID]; !exists {
 				queue = append(queue, queueItem{ThoughtID: nextID, Distance: current.Distance + 1})
 			}
 		}
@@ -323,21 +313,8 @@ func (repository *InMemoryRepository) GetGraphNeighborhood(centerThoughtID strin
 		return nil, errors.New("thought not found")
 	}
 
-	center := nodes[0]
-	var edges []*GraphEdge
-	for _, link := range edgeMap {
-		if _, ok := visited[link.SourceThoughtID]; ok {
-			if _, ok := visited[link.TargetThoughtID]; ok {
-				edges = append(edges, &GraphEdge{Link: cloneLink(link)})
-			}
-		}
-	}
-	sort.Slice(edges, func(i, j int) bool {
-		return edges[i].Link.Score > edges[j].Link.Score
-	})
-
 	return &GraphNeighborhood{
-		Center: center,
+		Center: nodes[0],
 		Nodes:  nodes,
 		Edges:  edges,
 	}, nil
@@ -350,7 +327,18 @@ func (repository *InMemoryRepository) GetConceptByID(id string) (*Concept, error
 	if !exists {
 		return nil, nil
 	}
-	return repository.buildConceptLocked(concept), nil
+	return repository.hydrateConceptLocked(concept), nil
+}
+
+func (repository *InMemoryRepository) GetConceptBySlug(slug string) (*Concept, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	for _, concept := range repository.concepts {
+		if concept.Slug == slug {
+			return repository.hydrateConceptLocked(concept), nil
+		}
+	}
+	return nil, nil
 }
 
 func (repository *InMemoryRepository) GetConceptByName(name string) (*Concept, error) {
@@ -358,9 +346,12 @@ func (repository *InMemoryRepository) GetConceptByName(name string) (*Concept, e
 	defer repository.mu.RUnlock()
 	normalized := normalizeConceptName(name)
 	for _, concept := range repository.concepts {
-		if concept.NormalizedName == normalized {
-			return repository.buildConceptLocked(concept), nil
+		if normalizeConceptName(concept.CanonicalName) == normalized {
+			return repository.hydrateConceptLocked(concept), nil
 		}
+	}
+	if alias, exists := repository.aliases[normalized]; exists {
+		return repository.hydrateConceptLocked(repository.concepts[alias.ConceptID]), nil
 	}
 	return nil, nil
 }
@@ -368,59 +359,42 @@ func (repository *InMemoryRepository) GetConceptByName(name string) (*Concept, e
 func (repository *InMemoryRepository) GetConceptThoughts(conceptID string, limit int) ([]*Thought, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-	var thoughts []*Thought
-	for thoughtID, conceptIDs := range repository.thoughtConcepts {
-		if _, exists := conceptIDs[conceptID]; !exists {
+
+	scoredThoughts := []*Thought{}
+	for thoughtID, thought := range repository.thoughts {
+		if thought.CurrentVersionID == "" {
 			continue
 		}
-		thought, err := repository.buildThoughtLocked(thoughtID, false, false)
+		if _, exists := repository.thoughtConcepts[thought.CurrentVersionID][conceptID]; !exists {
+			continue
+		}
+		hydrated, err := repository.hydrateThoughtLocked(thoughtID, false, false)
 		if err == nil {
-			thoughts = append(thoughts, thought)
+			scoredThoughts = append(scoredThoughts, hydrated)
 		}
 	}
-	sort.Slice(thoughts, func(i, j int) bool {
-		return thoughts[i].UpdatedAt > thoughts[j].UpdatedAt
+	sort.Slice(scoredThoughts, func(i, j int) bool {
+		return repository.qualityScoreLocked(scoredThoughts[i].ID) > repository.qualityScoreLocked(scoredThoughts[j].ID)
 	})
-	if len(thoughts) > limit {
-		thoughts = thoughts[:limit]
+	if len(scoredThoughts) > limit {
+		scoredThoughts = scoredThoughts[:limit]
 	}
-	return thoughts, nil
+	return scoredThoughts, nil
 }
 
 func (repository *InMemoryRepository) GetRelatedConcepts(conceptID string, limit int) ([]*Concept, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-	counts := map[string]int{}
-	for _, conceptIDs := range repository.thoughtConcepts {
-		if _, exists := conceptIDs[conceptID]; !exists {
-			continue
-		}
-		for relatedID := range conceptIDs {
-			if relatedID == conceptID {
-				continue
-			}
-			counts[relatedID]++
-		}
-	}
-	type scored struct {
-		ConceptID string
-		Count     int
-	}
-	var ranked []scored
-	for conceptID, count := range counts {
-		ranked = append(ranked, scored{ConceptID: conceptID, Count: count})
-	}
-	sort.Slice(ranked, func(i, j int) bool {
-		return ranked[i].Count > ranked[j].Count
-	})
-	if len(ranked) > limit {
-		ranked = ranked[:limit]
-	}
 	var related []*Concept
-	for _, entry := range ranked {
-		if concept, exists := repository.concepts[entry.ConceptID]; exists {
-			related = append(related, cloneConceptBase(concept))
+	for _, link := range repository.conceptLinks {
+		if link.SourceConceptID == conceptID {
+			if concept, exists := repository.concepts[link.TargetConceptID]; exists {
+				related = append(related, cloneConceptBase(concept))
+			}
 		}
+	}
+	if len(related) > limit {
+		related = related[:limit]
 	}
 	return related, nil
 }
@@ -430,25 +404,24 @@ func (repository *InMemoryRepository) ReplaceThoughtLinks(thoughtID string, link
 	defer repository.mu.Unlock()
 
 	for id, link := range repository.thoughtLinks {
-		if link.Origin == "analysis" && (link.SourceThoughtID == thoughtID || link.TargetThoughtID == thoughtID) {
+		if link.Source == "analysis" && (link.SourceThoughtID == thoughtID || link.TargetThoughtID == thoughtID) {
 			delete(repository.thoughtLinks, id)
 		}
 	}
 
 	for _, next := range links {
 		pair := normalizedPair(next.SourceThoughtID, next.TargetThoughtID)
-		var existingID string
-		for id, link := range repository.thoughtLinks {
+		var existing *ThoughtLink
+		for _, link := range repository.thoughtLinks {
 			if normalizedPair(link.SourceThoughtID, link.TargetThoughtID) == pair && link.RelationType == next.RelationType {
-				existingID = id
+				existing = link
 				break
 			}
 		}
-		if existingID != "" {
-			if repository.thoughtLinks[existingID].Score < next.Score {
-				repository.thoughtLinks[existingID].Score = next.Score
-			}
-			repository.thoughtLinks[existingID].Origin = next.Origin
+		if existing != nil {
+			existing.Weight = maxFloat(existing.Weight, next.Weight)
+			existing.Source = next.Source
+			existing.Explanation = next.Explanation
 			continue
 		}
 		link := cloneLink(next)
@@ -459,23 +432,147 @@ func (repository *InMemoryRepository) ReplaceThoughtLinks(thoughtID string, link
 	return nil
 }
 
-func normalizedPair(left, right string) string {
-	if left < right {
-		return left + ":" + right
+func (repository *InMemoryRepository) CreateCollection(curatorID, title, description string) (*Collection, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	now := nowISO()
+	collection := &Collection{
+		ID:          createID("collection"),
+		CuratorID:   curatorID,
+		Title:       title,
+		Description: description,
+		Visibility:  "public",
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
-	return right + ":" + left
+	repository.collections[collection.ID] = collection
+	repository.collectionItems[collection.ID] = []*CollectionItem{}
+	return cloneCollectionBase(collection), nil
 }
 
-func (repository *InMemoryRepository) buildConceptLocked(base *Concept) *Concept {
-	concept := cloneConceptBase(base)
-	related, _ := repository.GetRelatedConcepts(base.ID, 8)
-	topThoughts, _ := repository.GetConceptThoughts(base.ID, 8)
-	concept.RelatedConcepts = related
-	concept.TopThoughts = topThoughts
-	return concept
+func (repository *InMemoryRepository) AddThoughtToCollection(collectionID, thoughtID string) (*Collection, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	collection, exists := repository.collections[collectionID]
+	if !exists {
+		return nil, errors.New("collection not found")
+	}
+	if _, exists := repository.thoughts[thoughtID]; !exists {
+		return nil, errors.New("thought not found")
+	}
+	item := &CollectionItem{
+		CollectionID: collectionID,
+		ThoughtID:    thoughtID,
+		Position:     len(repository.collectionItems[collectionID]),
+		AddedAt:      nowISO(),
+	}
+	repository.collectionItems[collectionID] = append(repository.collectionItems[collectionID], item)
+	collection.UpdatedAt = nowISO()
+	return repository.hydrateCollectionLocked(collectionID)
 }
 
-func (repository *InMemoryRepository) buildThoughtLocked(thoughtID string, includeVersions bool, includeRelated bool) (*Thought, error) {
+func (repository *InMemoryRepository) GetCollection(id string) (*Collection, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	return repository.hydrateCollectionLocked(id)
+}
+
+func (repository *InMemoryRepository) RecordEngagement(event *EngagementEvent) (*EngagementEvent, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	clone := *event
+	if clone.ID == "" {
+		clone.ID = createID("engagement")
+	}
+	if clone.CreatedAt == "" {
+		clone.CreatedAt = nowISO()
+	}
+	repository.engagementEvents[clone.ID] = &clone
+	return &clone, nil
+}
+
+func (repository *InMemoryRepository) EnqueueJob(job *Job) (*Job, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	clone := *job
+	now := nowISO()
+	if clone.ID == "" {
+		clone.ID = createID("job")
+	}
+	clone.Status = JobPending
+	clone.VisibleAt = now
+	clone.CreatedAt = now
+	clone.UpdatedAt = now
+	if clone.MaxAttempts == 0 {
+		clone.MaxAttempts = 3
+	}
+	if clone.Payload == nil {
+		clone.Payload = map[string]string{}
+	}
+	repository.jobs[clone.ID] = &clone
+	repository.jobOrder = append(repository.jobOrder, clone.ID)
+	return cloneJob(&clone), nil
+}
+
+func (repository *InMemoryRepository) LeasePendingJob(workerID string) (*Job, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	for _, id := range repository.jobOrder {
+		job := repository.jobs[id]
+		if job == nil || job.Status != JobPending {
+			continue
+		}
+		job.Status = JobLeased
+		job.LeaseOwner = workerID
+		job.AttemptCount++
+		job.UpdatedAt = nowISO()
+		return cloneJob(job), nil
+	}
+	return nil, nil
+}
+
+func (repository *InMemoryRepository) CompleteJob(jobID string) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	job, exists := repository.jobs[jobID]
+	if !exists {
+		return errors.New("job not found")
+	}
+	job.Status = JobCompleted
+	job.UpdatedAt = nowISO()
+	return nil
+}
+
+func (repository *InMemoryRepository) FailJob(jobID, message string) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	job, exists := repository.jobs[jobID]
+	if !exists {
+		return errors.New("job not found")
+	}
+	job.LastError = message
+	job.UpdatedAt = nowISO()
+	if job.AttemptCount >= job.MaxAttempts {
+		job.Status = JobDead
+		return nil
+	}
+	job.Status = JobPending
+	job.LeaseOwner = ""
+	return nil
+}
+
+func (repository *InMemoryRepository) ListJobs() []*Job {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	jobs := make([]*Job, 0, len(repository.jobOrder))
+	for _, id := range repository.jobOrder {
+		jobs = append(jobs, cloneJob(repository.jobs[id]))
+	}
+	return jobs
+}
+
+func (repository *InMemoryRepository) hydrateThoughtLocked(thoughtID string, includeVersions, includeRelated bool) (*Thought, error) {
 	base, exists := repository.thoughts[thoughtID]
 	if !exists {
 		return nil, errors.New("thought not found")
@@ -484,14 +581,16 @@ func (repository *InMemoryRepository) buildThoughtLocked(thoughtID string, inclu
 		ID:               base.ID,
 		AuthorID:         base.AuthorID,
 		Author:           cloneUser(repository.viewer),
+		Status:           base.Status,
+		Visibility:       base.Visibility,
 		CurrentVersionID: base.CurrentVersionID,
-		Embedding:        append([]float64(nil), base.Embedding...),
 		ProcessingStatus: base.ProcessingStatus,
 		ProcessingNotes:  append([]string(nil), base.ProcessingNotes...),
 		CreatedAt:        base.CreatedAt,
 		UpdatedAt:        base.UpdatedAt,
 	}
-	for _, version := range repository.versions[thoughtID] {
+	for _, versionID := range repository.versionsByThought[thoughtID] {
+		version := repository.versions[versionID]
 		if version.ID == base.CurrentVersionID {
 			thought.CurrentVersion = cloneVersion(version)
 		}
@@ -499,34 +598,65 @@ func (repository *InMemoryRepository) buildThoughtLocked(thoughtID string, inclu
 			thought.Versions = append(thought.Versions, cloneVersion(version))
 		}
 	}
-	for conceptID := range repository.thoughtConcepts[thoughtID] {
+	if thought.CurrentVersion == nil {
+		return nil, errors.New("current version missing")
+	}
+	for conceptID := range repository.thoughtConcepts[thought.CurrentVersion.ID] {
 		if concept, exists := repository.concepts[conceptID]; exists {
 			thought.Concepts = append(thought.Concepts, cloneConceptBase(concept))
 		}
 	}
 	sort.Slice(thought.Concepts, func(i, j int) bool {
-		return thought.Concepts[i].Name < thought.Concepts[j].Name
+		return thought.Concepts[i].CanonicalName < thought.Concepts[j].CanonicalName
 	})
-	var links []*ThoughtLink
-	for _, link := range repository.thoughtLinks {
-		if link.SourceThoughtID == thoughtID || link.TargetThoughtID == thoughtID {
-			links = append(links, cloneLink(link))
+	for _, link := range repository.sortedLinksForThoughtLocked(thoughtID) {
+		thought.Links = append(thought.Links, cloneLink(link))
+	}
+	for collectionID, items := range repository.collectionItems {
+		for _, item := range items {
+			if item.ThoughtID == thoughtID {
+				if collection, exists := repository.collections[collectionID]; exists {
+					thought.Collections = append(thought.Collections, cloneCollectionBase(collection))
+				}
+			}
 		}
 	}
-	sort.Slice(links, func(i, j int) bool {
-		return links[i].Score > links[j].Score
-	})
-	thought.Links = links
 	if includeRelated {
 		thought.RelatedThoughts = repository.relatedThoughtsLocked(thoughtID, 8)
-	}
-	if thought.CurrentVersion == nil {
-		return nil, errors.New("current version missing")
 	}
 	return thought, nil
 }
 
-func (repository *InMemoryRepository) relatedThoughtsLocked(thoughtID string, limit int) []*Thought {
+func (repository *InMemoryRepository) hydrateConceptLocked(base *Concept) *Concept {
+	concept := cloneConceptBase(base)
+	for _, alias := range repository.aliases {
+		if alias.ConceptID == concept.ID {
+			clone := *alias
+			concept.Aliases = append(concept.Aliases, &clone)
+		}
+	}
+	concept.TopThoughts, _ = repository.GetConceptThoughts(concept.ID, 8)
+	concept.RelatedConcepts, _ = repository.GetRelatedConcepts(concept.ID, 8)
+	return concept
+}
+
+func (repository *InMemoryRepository) hydrateCollectionLocked(id string) (*Collection, error) {
+	base, exists := repository.collections[id]
+	if !exists {
+		return nil, errors.New("collection not found")
+	}
+	collection := cloneCollectionBase(base)
+	for _, item := range repository.collectionItems[id] {
+		clone := *item
+		if thought, err := repository.hydrateThoughtLocked(item.ThoughtID, false, false); err == nil {
+			clone.Thought = thought
+		}
+		collection.Items = append(collection.Items, &clone)
+	}
+	return collection, nil
+}
+
+func (repository *InMemoryRepository) sortedLinksForThoughtLocked(thoughtID string) []*ThoughtLink {
 	var links []*ThoughtLink
 	for _, link := range repository.thoughtLinks {
 		if link.SourceThoughtID == thoughtID || link.TargetThoughtID == thoughtID {
@@ -534,28 +664,112 @@ func (repository *InMemoryRepository) relatedThoughtsLocked(thoughtID string, li
 		}
 	}
 	sort.Slice(links, func(i, j int) bool {
-		return links[i].Score > links[j].Score
+		return links[i].Weight > links[j].Weight
 	})
+	return links
+}
+
+func (repository *InMemoryRepository) relatedThoughtsLocked(thoughtID string, limit int) []*Thought {
+	links := repository.sortedLinksForThoughtLocked(thoughtID)
 	if len(links) > limit {
 		links = links[:limit]
 	}
 	seen := map[string]struct{}{}
-	var related []*Thought
+	var thoughts []*Thought
 	for _, link := range links {
-		targetID := link.SourceThoughtID
-		if targetID == thoughtID {
-			targetID = link.TargetThoughtID
+		relatedID := link.SourceThoughtID
+		if relatedID == thoughtID {
+			relatedID = link.TargetThoughtID
 		}
-		if _, exists := seen[targetID]; exists {
+		if _, exists := seen[relatedID]; exists {
 			continue
 		}
-		seen[targetID] = struct{}{}
-		thought, err := repository.buildThoughtLocked(targetID, false, false)
+		seen[relatedID] = struct{}{}
+		thought, err := repository.hydrateThoughtLocked(relatedID, false, false)
 		if err == nil {
-			related = append(related, thought)
+			thoughts = append(thoughts, thought)
 		}
 	}
-	return related
+	return thoughts
+}
+
+func (repository *InMemoryRepository) refreshConceptLinksLocked() {
+	repository.conceptLinks = map[string]*ConceptLink{}
+	counts := map[string]float64{}
+	for _, conceptEdges := range repository.thoughtConcepts {
+		var ids []string
+		for conceptID := range conceptEdges {
+			ids = append(ids, conceptID)
+		}
+		sort.Strings(ids)
+		for index := 0; index < len(ids); index++ {
+			for other := index + 1; other < len(ids); other++ {
+				key := ids[index] + ":" + ids[other]
+				counts[key]++
+			}
+		}
+	}
+	for pair, weight := range counts {
+		parts := strings.Split(pair, ":")
+		repository.conceptLinks[createID("concept_link")] = &ConceptLink{
+			ID:              createID("concept_link"),
+			SourceConceptID: parts[0],
+			TargetConceptID: parts[1],
+			RelationType:    RelationRelated,
+			Weight:          weight,
+			Source:          "co_occurrence",
+			CreatedAt:       nowISO(),
+		}
+	}
+}
+
+func (repository *InMemoryRepository) upsertConceptLocked(raw string) *Concept {
+	normalized := normalizeConceptName(raw)
+	if alias, exists := repository.aliases[normalized]; exists {
+		return repository.concepts[alias.ConceptID]
+	}
+	for _, concept := range repository.concepts {
+		if normalizeConceptName(concept.CanonicalName) == normalized {
+			return concept
+		}
+	}
+	now := nowISO()
+	concept := &Concept{
+		ID:            createID("concept"),
+		CanonicalName: strings.TrimSpace(raw),
+		Slug:          slugify(raw),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	repository.concepts[concept.ID] = concept
+	alias := &ConceptAlias{
+		ID:              createID("alias"),
+		ConceptID:       concept.ID,
+		Alias:           concept.CanonicalName,
+		NormalizedAlias: normalized,
+	}
+	repository.aliases[normalized] = alias
+	return concept
+}
+
+func (repository *InMemoryRepository) qualityScoreLocked(thoughtID string) float64 {
+	score := 0.2
+	for _, items := range repository.collectionItems {
+		for _, item := range items {
+			if item.ThoughtID == thoughtID {
+				score += 0.2
+			}
+		}
+	}
+	for _, link := range repository.thoughtLinks {
+		if link.SourceThoughtID == thoughtID || link.TargetThoughtID == thoughtID {
+			score += 0.1
+		}
+	}
+	if score > 1 {
+		score = 1
+	}
+	return score
 }
 
 func (repository *InMemoryRepository) layoutNode(thought *Thought, distance, index int) *GraphNode {
@@ -576,6 +790,38 @@ func (repository *InMemoryRepository) layoutNode(thought *Thought, distance, ind
 	}
 }
 
+func lexicalScore(query, content string, concepts []*Concept) float64 {
+	if query == "" {
+		return 0
+	}
+	score := 0.0
+	contentLower := strings.ToLower(content)
+	if strings.Contains(contentLower, query) {
+		score += 1.0
+	}
+	for _, token := range strings.Fields(query) {
+		if strings.Contains(contentLower, token) {
+			score += 0.2
+		}
+		for _, concept := range concepts {
+			if strings.Contains(strings.ToLower(concept.CanonicalName), token) {
+				score += 0.15
+			}
+		}
+	}
+	if score > 1 {
+		return 1
+	}
+	return score
+}
+
+func dominantConceptName(thought *Thought) string {
+	if len(thought.Concepts) == 0 {
+		return ""
+	}
+	return thought.Concepts[0].CanonicalName
+}
+
 func cloneUser(user *User) *User {
 	if user == nil {
 		return nil
@@ -590,6 +836,8 @@ func cloneVersion(version *ThoughtVersion) *ThoughtVersion {
 		return nil
 	}
 	clone := *version
+	clone.Embedding = append([]float64(nil), version.Embedding...)
+	clone.ProcessingNotes = append([]string(nil), version.ProcessingNotes...)
 	return &clone
 }
 
@@ -598,11 +846,23 @@ func cloneConceptBase(concept *Concept) *Concept {
 		return nil
 	}
 	return &Concept{
-		ID:             concept.ID,
-		Name:           concept.Name,
-		NormalizedName: concept.NormalizedName,
-		CreatedAt:      concept.CreatedAt,
+		ID:            concept.ID,
+		CanonicalName: concept.CanonicalName,
+		Slug:          concept.Slug,
+		Description:   concept.Description,
+		ConceptType:   concept.ConceptType,
+		CreatedAt:     concept.CreatedAt,
+		UpdatedAt:     concept.UpdatedAt,
 	}
+}
+
+func cloneCollectionBase(collection *Collection) *Collection {
+	if collection == nil {
+		return nil
+	}
+	clone := *collection
+	clone.Items = nil
+	return &clone
 }
 
 func cloneLink(link *ThoughtLink) *ThoughtLink {
@@ -611,4 +871,60 @@ func cloneLink(link *ThoughtLink) *ThoughtLink {
 	}
 	clone := *link
 	return &clone
+}
+
+func cloneJob(job *Job) *Job {
+	if job == nil {
+		return nil
+	}
+	clone := *job
+	clone.Payload = map[string]string{}
+	for key, value := range job.Payload {
+		clone.Payload[key] = value
+	}
+	return &clone
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	var unique []string
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	return unique
+}
+
+func appendUniqueString(values []string, candidate string) []string {
+	for _, value := range values {
+		if value == candidate {
+			return values
+		}
+	}
+	return append(values, candidate)
+}
+
+func slugify(value string) string {
+	normalized := normalizeConceptName(value)
+	return strings.ReplaceAll(normalized, " ", "-")
+}
+
+func normalizedPair(left, right string) string {
+	if left < right {
+		return left + ":" + right
+	}
+	return right + ":" + left
+}
+
+func maxFloat(left, right float64) float64 {
+	if left > right {
+		return left
+	}
+	return right
 }
