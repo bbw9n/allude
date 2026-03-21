@@ -1,6 +1,7 @@
 package allude
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
 	"strings"
@@ -8,13 +9,27 @@ import (
 	"time"
 )
 
-const ViewerID = "user-dev"
+const ViewerID = "00000000-0000-0000-0000-000000000001"
 
 var idCounter uint64
 
 func createID(prefix string) string {
 	value := atomic.AddUint64(&idCounter, 1)
 	return fmt.Sprintf("%s_%x", prefix, value)
+}
+
+func newUUID() string {
+	bytes := make([]byte, 16)
+	_, _ = rand.Read(bytes)
+	bytes[6] = (bytes[6] & 0x0f) | 0x40
+	bytes[8] = (bytes[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x",
+		bytes[0:4],
+		bytes[4:6],
+		bytes[6:8],
+		bytes[8:10],
+		bytes[10:16],
+	)
 }
 
 func nowISO() string {
