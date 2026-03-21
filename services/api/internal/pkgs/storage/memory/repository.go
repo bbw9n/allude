@@ -530,6 +530,23 @@ func (repository *InMemoryRepository) GetCollection(id string) (*Collection, err
 	return repository.hydrateCollectionLocked(id)
 }
 
+func (repository *InMemoryRepository) ListCollections() ([]*Collection, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+
+	collections := make([]*Collection, 0, len(repository.collections))
+	for id := range repository.collections {
+		collection, err := repository.hydrateCollectionLocked(id)
+		if err == nil {
+			collections = append(collections, collection)
+		}
+	}
+	sort.Slice(collections, func(i, j int) bool {
+		return collections[i].UpdatedAt > collections[j].UpdatedAt
+	})
+	return collections, nil
+}
+
 func (repository *InMemoryRepository) RecordEngagement(event *EngagementEvent) (*EngagementEvent, error) {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()

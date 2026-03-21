@@ -181,6 +181,18 @@ func (repository *CachedRepository) GetCollection(id string) (*models.Collection
 	return collection, err
 }
 
+func (repository *CachedRepository) ListCollections() ([]*models.Collection, error) {
+	key := "collections:list"
+	if value, ok := repository.get(key); ok {
+		return value.([]*models.Collection), nil
+	}
+	collections, err := repository.next.ListCollections()
+	if err == nil && collections != nil {
+		repository.set(key, collections)
+	}
+	return collections, err
+}
+
 func (repository *CachedRepository) RecordEngagement(event *models.EngagementEvent) (*models.EngagementEvent, error) {
 	return repository.next.RecordEngagement(event)
 }

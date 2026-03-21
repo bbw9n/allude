@@ -27,6 +27,8 @@ struct RootView: View {
                     ConstellationView()
                 case .concept:
                     ConceptPageView()
+                case .collections:
+                    CollectionsView()
                 }
             }
             .overlay(alignment: .bottomTrailing) {

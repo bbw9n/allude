@@ -365,6 +365,12 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 					return server.service.Collection(p.Args["id"].(string))
 				},
 			},
+			"collections": &graphql.Field{
+				Type: graphql.NewList(collectionType),
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.Collections()
+				},
+			},
 		},
 	})
 

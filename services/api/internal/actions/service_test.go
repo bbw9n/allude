@@ -112,6 +112,14 @@ func TestHybridSearchAndCollections(t *testing.T) {
 	if len(result.Thoughts) == 0 {
 		t.Fatal("expected search results")
 	}
+
+	collections, err := service.Collections()
+	if err != nil {
+		t.Fatalf("list collections: %v", err)
+	}
+	if len(collections) == 0 {
+		t.Fatal("expected collections list to include created collection")
+	}
 }
 
 func TestDraftSuggestionsReturnsConceptsAndRelatedThoughts(t *testing.T) {
@@ -179,5 +187,22 @@ func TestGraphQLServerSupportsQueriesAndMutations(t *testing.T) {
 	server.ServeHTTP(suggestionResponse, suggestionRequest)
 	if !bytes.Contains(suggestionResponse.Body.Bytes(), []byte("draftSuggestions")) {
 		t.Fatalf("expected draftSuggestions payload, got %s", suggestionResponse.Body.String())
+	}
+
+	collectionMutationBody, _ := json.Marshal(map[string]interface{}{
+		"query": "mutation { createCollection(title: \"Research\") { id title } }",
+	})
+	collectionMutationRequest := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(collectionMutationBody))
+	collectionMutationResponse := httptest.NewRecorder()
+	server.ServeHTTP(collectionMutationResponse, collectionMutationRequest)
+
+	collectionsQueryBody, _ := json.Marshal(map[string]interface{}{
+		"query": "{ collections { id title } }",
+	})
+	collectionsQueryRequest := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(collectionsQueryBody))
+	collectionsQueryResponse := httptest.NewRecorder()
+	server.ServeHTTP(collectionsQueryResponse, collectionsQueryRequest)
+	if !bytes.Contains(collectionsQueryResponse.Body.Bytes(), []byte("collections")) {
+		t.Fatalf("expected collections payload, got %s", collectionsQueryResponse.Body.String())
 	}
 }

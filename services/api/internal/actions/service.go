@@ -168,6 +168,10 @@ func (service *Service) Collection(id string) (*models.Collection, error) {
 	return service.repository.GetCollection(id)
 }
 
+func (service *Service) Collections() ([]*models.Collection, error) {
+	return service.repository.ListCollections()
+}
+
 func (service *Service) RecordEngagement(entityType, entityID, actionType string, dwellMS int) (*models.EngagementEvent, error) {
 	return service.repository.RecordEngagement(&models.EngagementEvent{
 		UserID:     shared.ViewerID,

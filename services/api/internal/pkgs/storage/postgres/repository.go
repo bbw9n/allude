@@ -679,6 +679,25 @@ func (repository *PostgresRepository) GetCollection(id string) (*Collection, err
 	return collection, nil
 }
 
+func (repository *PostgresRepository) ListCollections() ([]*Collection, error) {
+	ctx := context.Background()
+	rows := []*collectionRow{}
+	if err := repository.db.NewSelect().Model(&rows).Order("updated_at DESC").Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []*Collection{}, nil
+		}
+		return nil, err
+	}
+	collections := make([]*Collection, 0, len(rows))
+	for _, row := range rows {
+		collection, err := repository.GetCollection(row.ID)
+		if err == nil {
+			collections = append(collections, collection)
+		}
+	}
+	return collections, nil
+}
+
 func (repository *PostgresRepository) RecordEngagement(event *EngagementEvent) (*EngagementEvent, error) {
 	ctx := context.Background()
 	if event.ID == "" {

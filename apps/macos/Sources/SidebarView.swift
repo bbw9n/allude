@@ -18,6 +18,14 @@ struct SidebarView: View {
             }
             .buttonStyle(.borderedProminent)
 
+            Button {
+                model.selectedSection = .collections
+                Task { await model.loadCollections() }
+            } label: {
+                Label("Collections", systemImage: "square.stack.3d.up")
+            }
+            .buttonStyle(.bordered)
+
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(SidebarSection.allCases) { section in
                     Button {

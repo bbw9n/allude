@@ -7,15 +7,21 @@ final class AppModel: ObservableObject {
     @Published var thoughts: [Thought] = []
     @Published var selectedThought: Thought?
     @Published var selectedConcept: Concept?
+    @Published var collections: [Collection] = []
+    @Published var selectedCollection: Collection?
     @Published var graph: GraphNeighborhood?
     @Published var telescopeQuery = ""
     @Published var searchResult = SearchThoughtsResult(thoughts: [], clusters: [])
     @Published var draftSuggestions = DraftSuggestions.empty
     @Published var draft = ""
+    @Published var newCollectionTitle = ""
+    @Published var newCollectionDescription = ""
     @Published var isSaving = false
     @Published var isSearching = false
     @Published var isRefreshingGraph = false
     @Published var isRefreshingDraftSuggestions = false
+    @Published var isRefreshingCollections = false
+    @Published var isSavingCollection = false
     @Published var errorMessage: String?
 
     private let client = GraphQLClient()
@@ -131,6 +137,80 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = "Unable to load the concept page."
         }
+    }
+
+    func loadCollections() async {
+        isRefreshingCollections = true
+        defer { isRefreshingCollections = false }
+
+        do {
+            let data = try await client.send(
+                query: AlludeAPI.collections,
+                variables: EmptyVariables(),
+                data: CollectionsData.self
+            )
+            collections = data.collections
+            if selectedCollection == nil {
+                selectedCollection = data.collections.first
+            } else if let selectedCollection {
+                self.selectedCollection = data.collections.first(where: { $0.id == selectedCollection.id }) ?? data.collections.first
+            }
+        } catch {
+            errorMessage = "Unable to load collections."
+        }
+    }
+
+    func createCollection() async {
+        let title = newCollectionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+
+        isSavingCollection = true
+        defer { isSavingCollection = false }
+
+        do {
+            let data = try await client.send(
+                query: AlludeAPI.createCollection,
+                variables: [
+                    "title": AnyEncodable(title),
+                    "description": AnyEncodable(newCollectionDescription.isEmpty ? nil as String? : newCollectionDescription)
+                ],
+                data: CreateCollectionPayload.self
+            )
+            newCollectionTitle = ""
+            newCollectionDescription = ""
+            selectedCollection = data.createCollection
+            await loadCollections()
+        } catch {
+            errorMessage = "Unable to create collection."
+        }
+    }
+
+    func addSelectedThoughtToCollection(_ collection: Collection) async {
+        guard let selectedThought else { return }
+
+        isSavingCollection = true
+        defer { isSavingCollection = false }
+
+        do {
+            let data = try await client.send(
+                query: AlludeAPI.addThoughtToCollection,
+                variables: [
+                    "collectionId": AnyEncodable(collection.id),
+                    "thoughtId": AnyEncodable(selectedThought.id)
+                ],
+                data: AddThoughtToCollectionPayload.self
+            )
+            selectedCollection = data.addThoughtToCollection
+            collections = collections.map { $0.id == data.addThoughtToCollection.id ? data.addThoughtToCollection : $0 }
+            await refreshSelectedThought()
+        } catch {
+            errorMessage = "Unable to add the thought to this collection."
+        }
+    }
+
+    func selectCollection(_ collection: Collection) {
+        selectedCollection = collection
+        selectedSection = .collections
     }
 
     func selectThought(_ thought: Thought) {

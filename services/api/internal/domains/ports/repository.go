@@ -21,6 +21,7 @@ type Repository interface {
 	CreateCollection(curatorID, title, description string) (*models.Collection, error)
 	AddThoughtToCollection(collectionID, thoughtID string) (*models.Collection, error)
 	GetCollection(id string) (*models.Collection, error)
+	ListCollections() ([]*models.Collection, error)
 	RecordEngagement(event *models.EngagementEvent) (*models.EngagementEvent, error)
 	EnqueueJob(job *models.Job) (*models.Job, error)
 	LeasePendingJob(workerID string) (*models.Job, error)

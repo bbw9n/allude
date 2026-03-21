@@ -1,6 +1,25 @@
 import Foundation
 
 enum AlludeAPI {
+    static let collectionFields = """
+    id
+    curatorId
+    title
+    description
+    visibility
+    createdAt
+    updatedAt
+    items {
+      collectionId
+      thoughtId
+      position
+      addedAt
+      thought {
+        \(thoughtFields)
+      }
+    }
+    """
+
     static let thoughtFields = """
     id
     processingStatus
@@ -180,6 +199,30 @@ enum AlludeAPI {
       }
     }
     """
+
+    static let collections = """
+    query Collections {
+      collections {
+        \(collectionFields)
+      }
+    }
+    """
+
+    static let createCollection = """
+    mutation CreateCollection($title: String!, $description: String) {
+      createCollection(title: $title, description: $description) {
+        \(collectionFields)
+      }
+    }
+    """
+
+    static let addThoughtToCollection = """
+    mutation AddThoughtToCollection($collectionId: ID!, $thoughtId: ID!) {
+      addThoughtToCollection(collectionId: $collectionId, thoughtId: $thoughtId) {
+        \(collectionFields)
+      }
+    }
+    """
 }
 
 struct SearchThoughtsData: Decodable {
@@ -208,4 +251,16 @@ struct ConceptData: Decodable {
 
 struct DraftSuggestionsData: Decodable {
     let draftSuggestions: DraftSuggestions
+}
+
+struct CollectionsData: Decodable {
+    let collections: [Collection]
+}
+
+struct CreateCollectionPayload: Decodable {
+    let createCollection: Collection
+}
+
+struct AddThoughtToCollectionPayload: Decodable {
+    let addThoughtToCollection: Collection
 }

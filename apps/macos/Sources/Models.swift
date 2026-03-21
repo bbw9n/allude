@@ -54,8 +54,30 @@ struct Thought: Decodable, Hashable, Identifiable {
     let concepts: [Concept]
     let relatedThoughts: [Thought]?
     let links: [ThoughtLink]?
+    let collections: [Collection]?
     let processingStatus: String
     let processingNotes: [String]
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct CollectionItem: Decodable, Hashable, Identifiable {
+    let collectionId: String
+    let thoughtId: String
+    let position: Int?
+    let addedAt: String?
+    let thought: Thought?
+
+    var id: String { "\(collectionId):\(thoughtId)" }
+}
+
+struct Collection: Decodable, Hashable, Identifiable {
+    let id: String
+    let curatorId: String
+    let title: String
+    let description: String?
+    let visibility: String?
+    let items: [CollectionItem]?
     let createdAt: String
     let updatedAt: String
 }
@@ -113,6 +135,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     case telescope = "Telescope"
     case constellation = "Constellation"
     case concept = "Concept"
+    case collections = "Collections"
 
     var id: String { rawValue }
 }

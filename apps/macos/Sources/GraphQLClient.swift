@@ -22,6 +22,8 @@ struct GraphQLRequestBody<V: Encodable>: Encodable {
     let variables: V
 }
 
+struct EmptyVariables: Encodable {}
+
 struct GraphQLResponse<D: Decodable>: Decodable {
     let data: D?
     let errors: [GraphQLErrorPayload]?
