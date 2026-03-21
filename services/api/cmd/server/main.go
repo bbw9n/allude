@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bytedance/allude/services/api/internal/allude"
+	"github.com/bbw9n/allude/services/api/internal/allude"
 )
 
 func main() {

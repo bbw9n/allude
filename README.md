@@ -17,7 +17,7 @@ cd services/api
 go run ./cmd/server
 ```
 
-The current backend is implemented in Go and serves a GraphQL-compatible MVP endpoint at `http://127.0.0.1:4000/`. The in-memory repository is active by default, and the Postgres + pgvector target schema lives at [`schema.sql`](/Users/bytedance/work/genai/Allude/services/api/src/postgres/schema.sql).
+The current backend is implemented in Go and serves a GraphQL-compatible MVP endpoint at `http://127.0.0.1:4000/`. The in-memory repository is active by default, and the Postgres + pgvector target schema lives at [`schema.sql`](services/api/src/postgres/schema.sql).
 
 ### macOS app
 

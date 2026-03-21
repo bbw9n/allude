@@ -18,4 +18,4 @@ cd services/api
 go run ./cmd/server
 ```
 
-The current implementation uses an in-memory runtime store plus a Postgres `pgvector` schema at [`src/postgres/schema.sql`](/Users/bytedance/work/genai/Allude/services/api/src/postgres/schema.sql) for the production storage target. Background enrichment is driven through durable-style job records and a worker loop inside the Go monolith.
+The current implementation uses an in-memory runtime store plus a Postgres `pgvector` schema at [`src/postgres/schema.sql`](services/api/src/postgres/schema.sql) for the production storage target. Background enrichment is driven through durable-style job records and a worker loop inside the Go monolith.
