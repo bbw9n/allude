@@ -1,4 +1,4 @@
-package allude
+package memory
 
 import (
 	"errors"
@@ -6,7 +6,59 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/bbw9n/allude/services/api/internal/domains/models"
+	"github.com/bbw9n/allude/services/api/internal/domains/semantics"
+	"github.com/bbw9n/allude/services/api/internal/pkgs/shared"
 )
+
+const ViewerID = shared.ViewerID
+
+var (
+	nowISO               = shared.NowISO
+	createID             = shared.CreateID
+	normalizeConceptName = shared.NormalizeConceptName
+	cosineSimilarity     = shared.CosineSimilarity
+	clamp                = shared.Clamp
+)
+
+const (
+	ProcessingPending    = models.ProcessingPending
+	ProcessingProcessing = models.ProcessingProcessing
+	ProcessingReady      = models.ProcessingReady
+	ProcessingPartial    = models.ProcessingPartial
+	ProcessingFailed     = models.ProcessingFailed
+	RelationRelated      = models.RelationRelated
+	RelationExtends      = models.RelationExtends
+	RelationContradict   = models.RelationContradict
+	RelationExampleOf    = models.RelationExampleOf
+	JobPending           = models.JobPending
+	JobLeased            = models.JobLeased
+	JobCompleted         = models.JobCompleted
+	JobDead              = models.JobDead
+)
+
+type User = models.User
+type Thought = models.Thought
+type ThoughtVersion = models.ThoughtVersion
+type Concept = models.Concept
+type ConceptAlias = models.ConceptAlias
+type ThoughtConcept = models.ThoughtConcept
+type ThoughtLink = models.ThoughtLink
+type ConceptLink = models.ConceptLink
+type Collection = models.Collection
+type CollectionItem = models.CollectionItem
+type EngagementEvent = models.EngagementEvent
+type GraphNode = models.GraphNode
+type GraphEdge = models.GraphEdge
+type GraphNeighborhood = models.GraphNeighborhood
+type SearchCluster = models.SearchCluster
+type SearchThoughtsResult = models.SearchThoughtsResult
+type Job = models.Job
+type ProcessingStatus = models.ProcessingStatus
+type RelationType = models.RelationType
+type JobStatus = models.JobStatus
+type JobType = models.JobType
 
 type InMemoryRepository struct {
 	mu                sync.RWMutex
@@ -164,7 +216,7 @@ func (repository *InMemoryRepository) SaveThoughtVersionEnrichment(versionID str
 	version.ProcessingNotes = append([]string(nil), notes...)
 	repository.thoughtConcepts[versionID] = map[string]*ThoughtConcept{}
 
-	for _, raw := range uniqueStrings(conceptNames) {
+	for _, raw := range semantics.UniqueStrings(conceptNames) {
 		concept := repository.upsertConceptLocked(raw)
 		repository.thoughtConcepts[versionID][concept.ID] = &ThoughtConcept{
 			ThoughtVersionID: versionID,
@@ -202,7 +254,7 @@ func (repository *InMemoryRepository) SearchThoughts(query string, embedding []f
 		if err != nil || thought.CurrentVersion == nil {
 			continue
 		}
-		lexical := lexicalScore(queryLower, thought.CurrentVersion.Content, thought.Concepts)
+		lexical := semantics.LexicalScore(queryLower, thought.CurrentVersion.Content, thought.Concepts)
 		semantic := cosineSimilarity(embedding, thought.CurrentVersion.Embedding)
 		quality := repository.qualityScoreLocked(thought.ID)
 		score := (0.35 * lexical) + (0.45 * semantic) + (0.20 * quality)
@@ -233,7 +285,7 @@ func (repository *InMemoryRepository) SearchThoughts(query string, embedding []f
 				}
 				clusterMap[concept.ID] = cluster
 			}
-			cluster.ThoughtIDs = appendUniqueString(cluster.ThoughtIDs, entry.Thought.ID)
+			cluster.ThoughtIDs = semantics.AppendUniqueString(cluster.ThoughtIDs, entry.Thought.ID)
 		}
 	}
 
@@ -284,7 +336,7 @@ func (repository *InMemoryRepository) GetGraphNeighborhood(centerThoughtID strin
 		if err != nil {
 			continue
 		}
-		dominantConcept := dominantConceptName(thought)
+		dominantConcept := semantics.DominantConceptName(thought)
 		if dominantConcept != "" && current.Distance > 0 && dominantConceptCount[dominantConcept] >= 2 {
 			continue
 		}
@@ -410,16 +462,16 @@ func (repository *InMemoryRepository) ReplaceThoughtLinks(thoughtID string, link
 	}
 
 	for _, next := range links {
-		pair := normalizedPair(next.SourceThoughtID, next.TargetThoughtID)
+		pair := semantics.NormalizedPair(next.SourceThoughtID, next.TargetThoughtID)
 		var existing *ThoughtLink
 		for _, link := range repository.thoughtLinks {
-			if normalizedPair(link.SourceThoughtID, link.TargetThoughtID) == pair && link.RelationType == next.RelationType {
+			if semantics.NormalizedPair(link.SourceThoughtID, link.TargetThoughtID) == pair && link.RelationType == next.RelationType {
 				existing = link
 				break
 			}
 		}
 		if existing != nil {
-			existing.Weight = maxFloat(existing.Weight, next.Weight)
+			existing.Weight = semantics.MaxFloat(existing.Weight, next.Weight)
 			existing.Source = next.Source
 			existing.Explanation = next.Explanation
 			continue
@@ -737,7 +789,7 @@ func (repository *InMemoryRepository) upsertConceptLocked(raw string) *Concept {
 	concept := &Concept{
 		ID:            createID("concept"),
 		CanonicalName: strings.TrimSpace(raw),
-		Slug:          slugify(raw),
+		Slug:          semantics.Slugify(raw),
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -788,38 +840,6 @@ func (repository *InMemoryRepository) layoutNode(thought *Thought, distance, ind
 		Y:         math.Round(math.Sin(angle)*radius*100) / 100,
 		Distance:  clamp(distance, 0, 4),
 	}
-}
-
-func lexicalScore(query, content string, concepts []*Concept) float64 {
-	if query == "" {
-		return 0
-	}
-	score := 0.0
-	contentLower := strings.ToLower(content)
-	if strings.Contains(contentLower, query) {
-		score += 1.0
-	}
-	for _, token := range strings.Fields(query) {
-		if strings.Contains(contentLower, token) {
-			score += 0.2
-		}
-		for _, concept := range concepts {
-			if strings.Contains(strings.ToLower(concept.CanonicalName), token) {
-				score += 0.15
-			}
-		}
-	}
-	if score > 1 {
-		return 1
-	}
-	return score
-}
-
-func dominantConceptName(thought *Thought) string {
-	if len(thought.Concepts) == 0 {
-		return ""
-	}
-	return thought.Concepts[0].CanonicalName
 }
 
 func cloneUser(user *User) *User {
@@ -883,48 +903,4 @@ func cloneJob(job *Job) *Job {
 		clone.Payload[key] = value
 	}
 	return &clone
-}
-
-func uniqueStrings(values []string) []string {
-	seen := map[string]struct{}{}
-	var unique []string
-	for _, value := range values {
-		if value == "" {
-			continue
-		}
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		unique = append(unique, value)
-	}
-	return unique
-}
-
-func appendUniqueString(values []string, candidate string) []string {
-	for _, value := range values {
-		if value == candidate {
-			return values
-		}
-	}
-	return append(values, candidate)
-}
-
-func slugify(value string) string {
-	normalized := normalizeConceptName(value)
-	return strings.ReplaceAll(normalized, " ", "-")
-}
-
-func normalizedPair(left, right string) string {
-	if left < right {
-		return left + ":" + right
-	}
-	return right + ":" + left
-}
-
-func maxFloat(left, right float64) float64 {
-	if left > right {
-		return left
-	}
-	return right
 }

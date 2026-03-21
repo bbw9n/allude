@@ -1,9 +1,12 @@
-package allude
+package cache
 
 import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/bbw9n/allude/services/api/internal/domains/models"
+	"github.com/bbw9n/allude/services/api/internal/domains/ports"
 )
 
 type cacheEntry struct {
@@ -12,13 +15,13 @@ type cacheEntry struct {
 }
 
 type CachedRepository struct {
-	next    Repository
+	next    ports.Repository
 	ttl     time.Duration
 	mu      sync.RWMutex
 	entries map[string]cacheEntry
 }
 
-func NewCachedRepository(next Repository, ttl time.Duration) *CachedRepository {
+func NewCachedRepository(next ports.Repository, ttl time.Duration) *CachedRepository {
 	return &CachedRepository{
 		next:    next,
 		ttl:     ttl,
@@ -26,11 +29,11 @@ func NewCachedRepository(next Repository, ttl time.Duration) *CachedRepository {
 	}
 }
 
-func (repository *CachedRepository) GetViewer() *User {
+func (repository *CachedRepository) GetViewer() *models.User {
 	return repository.next.GetViewer()
 }
 
-func (repository *CachedRepository) CreateThought(authorID, content string) (*Thought, error) {
+func (repository *CachedRepository) CreateThought(authorID, content string) (*models.Thought, error) {
 	thought, err := repository.next.CreateThought(authorID, content)
 	if err == nil {
 		repository.invalidateThought(thought.ID)
@@ -38,7 +41,7 @@ func (repository *CachedRepository) CreateThought(authorID, content string) (*Th
 	return thought, err
 }
 
-func (repository *CachedRepository) UpdateThought(thoughtID, content string) (*Thought, error) {
+func (repository *CachedRepository) UpdateThought(thoughtID, content string) (*models.Thought, error) {
 	thought, err := repository.next.UpdateThought(thoughtID, content)
 	if err == nil {
 		repository.invalidateThought(thoughtID)
@@ -46,10 +49,10 @@ func (repository *CachedRepository) UpdateThought(thoughtID, content string) (*T
 	return thought, err
 }
 
-func (repository *CachedRepository) GetThought(thoughtID string) (*Thought, error) {
+func (repository *CachedRepository) GetThought(thoughtID string) (*models.Thought, error) {
 	key := "thought:" + thoughtID
 	if value, ok := repository.get(key); ok {
-		return value.(*Thought), nil
+		return value.(*models.Thought), nil
 	}
 	thought, err := repository.next.GetThought(thoughtID)
 	if err == nil && thought != nil {
@@ -58,11 +61,11 @@ func (repository *CachedRepository) GetThought(thoughtID string) (*Thought, erro
 	return thought, err
 }
 
-func (repository *CachedRepository) ListThoughtVersions(thoughtID string) ([]*ThoughtVersion, error) {
+func (repository *CachedRepository) ListThoughtVersions(thoughtID string) ([]*models.ThoughtVersion, error) {
 	return repository.next.ListThoughtVersions(thoughtID)
 }
 
-func (repository *CachedRepository) SaveThoughtVersionEnrichment(versionID string, embedding []float64, conceptNames []string, status ProcessingStatus, notes []string) (*ThoughtVersion, error) {
+func (repository *CachedRepository) SaveThoughtVersionEnrichment(versionID string, embedding []float64, conceptNames []string, status models.ProcessingStatus, notes []string) (*models.ThoughtVersion, error) {
 	version, err := repository.next.SaveThoughtVersionEnrichment(versionID, embedding, conceptNames, status, notes)
 	if err == nil {
 		repository.invalidateAll()
@@ -70,10 +73,10 @@ func (repository *CachedRepository) SaveThoughtVersionEnrichment(versionID strin
 	return version, err
 }
 
-func (repository *CachedRepository) SearchThoughts(query string, embedding []float64, limit int) (*SearchThoughtsResult, error) {
+func (repository *CachedRepository) SearchThoughts(query string, embedding []float64, limit int) (*models.SearchThoughtsResult, error) {
 	key := fmt.Sprintf("search:%s:%d", query, limit)
 	if value, ok := repository.get(key); ok {
-		return value.(*SearchThoughtsResult), nil
+		return value.(*models.SearchThoughtsResult), nil
 	}
 	result, err := repository.next.SearchThoughts(query, embedding, limit)
 	if err == nil && result != nil {
@@ -82,14 +85,14 @@ func (repository *CachedRepository) SearchThoughts(query string, embedding []flo
 	return result, err
 }
 
-func (repository *CachedRepository) GetRelatedThoughts(thoughtID string, limit int) ([]*Thought, error) {
+func (repository *CachedRepository) GetRelatedThoughts(thoughtID string, limit int) ([]*models.Thought, error) {
 	return repository.next.GetRelatedThoughts(thoughtID, limit)
 }
 
-func (repository *CachedRepository) GetGraphNeighborhood(centerThoughtID string, hopCount, limit int) (*GraphNeighborhood, error) {
+func (repository *CachedRepository) GetGraphNeighborhood(centerThoughtID string, hopCount, limit int) (*models.GraphNeighborhood, error) {
 	key := fmt.Sprintf("graph:%s:%d:%d", centerThoughtID, hopCount, limit)
 	if value, ok := repository.get(key); ok {
-		return value.(*GraphNeighborhood), nil
+		return value.(*models.GraphNeighborhood), nil
 	}
 	graph, err := repository.next.GetGraphNeighborhood(centerThoughtID, hopCount, limit)
 	if err == nil && graph != nil {
@@ -98,10 +101,10 @@ func (repository *CachedRepository) GetGraphNeighborhood(centerThoughtID string,
 	return graph, err
 }
 
-func (repository *CachedRepository) GetConceptByID(id string) (*Concept, error) {
+func (repository *CachedRepository) GetConceptByID(id string) (*models.Concept, error) {
 	key := "concept:id:" + id
 	if value, ok := repository.get(key); ok {
-		return value.(*Concept), nil
+		return value.(*models.Concept), nil
 	}
 	concept, err := repository.next.GetConceptByID(id)
 	if err == nil && concept != nil {
@@ -110,10 +113,10 @@ func (repository *CachedRepository) GetConceptByID(id string) (*Concept, error) 
 	return concept, err
 }
 
-func (repository *CachedRepository) GetConceptBySlug(slug string) (*Concept, error) {
+func (repository *CachedRepository) GetConceptBySlug(slug string) (*models.Concept, error) {
 	key := "concept:slug:" + slug
 	if value, ok := repository.get(key); ok {
-		return value.(*Concept), nil
+		return value.(*models.Concept), nil
 	}
 	concept, err := repository.next.GetConceptBySlug(slug)
 	if err == nil && concept != nil {
@@ -122,10 +125,10 @@ func (repository *CachedRepository) GetConceptBySlug(slug string) (*Concept, err
 	return concept, err
 }
 
-func (repository *CachedRepository) GetConceptByName(name string) (*Concept, error) {
+func (repository *CachedRepository) GetConceptByName(name string) (*models.Concept, error) {
 	key := "concept:name:" + name
 	if value, ok := repository.get(key); ok {
-		return value.(*Concept), nil
+		return value.(*models.Concept), nil
 	}
 	concept, err := repository.next.GetConceptByName(name)
 	if err == nil && concept != nil {
@@ -134,15 +137,15 @@ func (repository *CachedRepository) GetConceptByName(name string) (*Concept, err
 	return concept, err
 }
 
-func (repository *CachedRepository) GetConceptThoughts(conceptID string, limit int) ([]*Thought, error) {
+func (repository *CachedRepository) GetConceptThoughts(conceptID string, limit int) ([]*models.Thought, error) {
 	return repository.next.GetConceptThoughts(conceptID, limit)
 }
 
-func (repository *CachedRepository) GetRelatedConcepts(conceptID string, limit int) ([]*Concept, error) {
+func (repository *CachedRepository) GetRelatedConcepts(conceptID string, limit int) ([]*models.Concept, error) {
 	return repository.next.GetRelatedConcepts(conceptID, limit)
 }
 
-func (repository *CachedRepository) ReplaceThoughtLinks(thoughtID string, links []*ThoughtLink) error {
+func (repository *CachedRepository) ReplaceThoughtLinks(thoughtID string, links []*models.ThoughtLink) error {
 	err := repository.next.ReplaceThoughtLinks(thoughtID, links)
 	if err == nil {
 		repository.invalidateAll()
@@ -150,7 +153,7 @@ func (repository *CachedRepository) ReplaceThoughtLinks(thoughtID string, links 
 	return err
 }
 
-func (repository *CachedRepository) CreateCollection(curatorID, title, description string) (*Collection, error) {
+func (repository *CachedRepository) CreateCollection(curatorID, title, description string) (*models.Collection, error) {
 	collection, err := repository.next.CreateCollection(curatorID, title, description)
 	if err == nil {
 		repository.invalidateAll()
@@ -158,7 +161,7 @@ func (repository *CachedRepository) CreateCollection(curatorID, title, descripti
 	return collection, err
 }
 
-func (repository *CachedRepository) AddThoughtToCollection(collectionID, thoughtID string) (*Collection, error) {
+func (repository *CachedRepository) AddThoughtToCollection(collectionID, thoughtID string) (*models.Collection, error) {
 	collection, err := repository.next.AddThoughtToCollection(collectionID, thoughtID)
 	if err == nil {
 		repository.invalidateAll()
@@ -166,10 +169,10 @@ func (repository *CachedRepository) AddThoughtToCollection(collectionID, thought
 	return collection, err
 }
 
-func (repository *CachedRepository) GetCollection(id string) (*Collection, error) {
+func (repository *CachedRepository) GetCollection(id string) (*models.Collection, error) {
 	key := "collection:" + id
 	if value, ok := repository.get(key); ok {
-		return value.(*Collection), nil
+		return value.(*models.Collection), nil
 	}
 	collection, err := repository.next.GetCollection(id)
 	if err == nil && collection != nil {
@@ -178,15 +181,15 @@ func (repository *CachedRepository) GetCollection(id string) (*Collection, error
 	return collection, err
 }
 
-func (repository *CachedRepository) RecordEngagement(event *EngagementEvent) (*EngagementEvent, error) {
+func (repository *CachedRepository) RecordEngagement(event *models.EngagementEvent) (*models.EngagementEvent, error) {
 	return repository.next.RecordEngagement(event)
 }
 
-func (repository *CachedRepository) EnqueueJob(job *Job) (*Job, error) {
+func (repository *CachedRepository) EnqueueJob(job *models.Job) (*models.Job, error) {
 	return repository.next.EnqueueJob(job)
 }
 
-func (repository *CachedRepository) LeasePendingJob(workerID string) (*Job, error) {
+func (repository *CachedRepository) LeasePendingJob(workerID string) (*models.Job, error) {
 	return repository.next.LeasePendingJob(workerID)
 }
 
@@ -198,7 +201,7 @@ func (repository *CachedRepository) FailJob(jobID, message string) error {
 	return repository.next.FailJob(jobID, message)
 }
 
-func (repository *CachedRepository) ListJobs() []*Job {
+func (repository *CachedRepository) ListJobs() []*models.Job {
 	return repository.next.ListJobs()
 }
 

@@ -1,4 +1,4 @@
-package allude
+package postgres
 
 import (
 	"context"
@@ -9,10 +9,55 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bbw9n/allude/services/api/internal/domains/models"
+	"github.com/bbw9n/allude/services/api/internal/domains/semantics"
+	"github.com/bbw9n/allude/services/api/internal/pkgs/shared"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 )
+
+const ViewerID = shared.ViewerID
+
+var (
+	newUUID              = shared.NewUUID
+	normalizeConceptName = shared.NormalizeConceptName
+	cosineSimilarity     = shared.CosineSimilarity
+)
+
+const (
+	ProcessingPending  = models.ProcessingPending
+	RelationRelated    = models.RelationRelated
+	RelationExtends    = models.RelationExtends
+	RelationContradict = models.RelationContradict
+	RelationExampleOf  = models.RelationExampleOf
+	JobPending         = models.JobPending
+	JobLeased          = models.JobLeased
+	JobCompleted       = models.JobCompleted
+	JobDead            = models.JobDead
+)
+
+type User = models.User
+type Thought = models.Thought
+type ThoughtVersion = models.ThoughtVersion
+type Concept = models.Concept
+type ConceptAlias = models.ConceptAlias
+type ThoughtConcept = models.ThoughtConcept
+type ThoughtLink = models.ThoughtLink
+type ConceptLink = models.ConceptLink
+type Collection = models.Collection
+type CollectionItem = models.CollectionItem
+type EngagementEvent = models.EngagementEvent
+type GraphNode = models.GraphNode
+type GraphEdge = models.GraphEdge
+type GraphNeighborhood = models.GraphNeighborhood
+type SearchCluster = models.SearchCluster
+type SearchThoughtsResult = models.SearchThoughtsResult
+type Job = models.Job
+type ProcessingStatus = models.ProcessingStatus
+type RelationType = models.RelationType
+type JobStatus = models.JobStatus
+type JobType = models.JobType
 
 type PostgresRepository struct {
 	db *bun.DB
@@ -314,7 +359,7 @@ func (repository *PostgresRepository) SaveThoughtVersionEnrichment(versionID str
 		})(nil)).Where("thought_version_id = ?", versionID).Exec(ctx); err != nil {
 			return err
 		}
-		for _, conceptName := range uniqueStrings(conceptNames) {
+		for _, conceptName := range semantics.UniqueStrings(conceptNames) {
 			conceptID, err := repository.upsertConceptTx(ctx, tx, conceptName)
 			if err != nil {
 				return err
@@ -376,9 +421,9 @@ func (repository *PostgresRepository) SearchThoughts(query string, embedding []f
 		if err != nil || thought.CurrentVersion == nil {
 			continue
 		}
-		score := (0.35 * lexicalScore(strings.ToLower(query), thought.CurrentVersion.Content, thought.Concepts)) +
+		score := (0.35 * semantics.LexicalScore(strings.ToLower(query), thought.CurrentVersion.Content, thought.Concepts)) +
 			(0.45 * cosineSimilarity(embedding, thought.CurrentVersion.Embedding)) +
-			(0.20 * qualityScore(thought))
+			(0.20 * semantics.QualityScore(thought))
 		if score > 0 {
 			ranked = append(ranked, scored{thought: thought, score: score})
 		}
@@ -397,7 +442,7 @@ func (repository *PostgresRepository) SearchThoughts(query string, embedding []f
 				cluster = &SearchCluster{Label: concept.CanonicalName, Concepts: []*Concept{cloneConceptBase(concept)}}
 				clusterMap[concept.ID] = cluster
 			}
-			cluster.ThoughtIDs = appendUniqueString(cluster.ThoughtIDs, entry.thought.ID)
+			cluster.ThoughtIDs = semantics.AppendUniqueString(cluster.ThoughtIDs, entry.thought.ID)
 		}
 	}
 	for _, cluster := range clusterMap {
@@ -840,7 +885,7 @@ func (repository *PostgresRepository) upsertConceptTx(ctx context.Context, tx bu
 	concept := &conceptRow{
 		ID:            newUUID(),
 		CanonicalName: conceptName,
-		Slug:          slugify(conceptName),
+		Slug:          semantics.Slugify(conceptName),
 	}
 	if _, err := tx.NewInsert().Model(concept).Ignore().Exec(ctx); err != nil {
 		return "", err
@@ -957,16 +1002,6 @@ func jobFromRow(row *jobRow) *Job {
 	return job
 }
 
-func qualityScore(thought *Thought) float64 {
-	score := 0.2
-	score += float64(len(thought.Collections)) * 0.2
-	score += float64(len(thought.Links)) * 0.1
-	if score > 1 {
-		score = 1
-	}
-	return score
-}
-
 func parseVector(input string) []float64 {
 	input = strings.TrimSpace(strings.Trim(input, "[]"))
 	if input == "" {
@@ -991,4 +1026,15 @@ func vectorLiteral(values []float64) string {
 		parts = append(parts, fmt.Sprintf("%f", value))
 	}
 	return "[" + strings.Join(parts, ",") + "]"
+}
+
+func cloneConceptBase(concept *Concept) *Concept {
+	if concept == nil {
+		return nil
+	}
+	clone := *concept
+	clone.Aliases = nil
+	clone.RelatedConcepts = nil
+	clone.TopThoughts = nil
+	return &clone
 }

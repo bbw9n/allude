@@ -1,18 +1,21 @@
-package allude
+package actions
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/bbw9n/allude/services/api/internal/domains/models"
+	"github.com/bbw9n/allude/services/api/internal/domains/ports"
 )
 
 type JobRunner struct {
-	repository Repository
+	repository ports.Repository
 	service    *Service
 	workerID   string
 }
 
-func NewJobRunner(repository Repository, service *Service, workerID string) *JobRunner {
+func NewJobRunner(repository ports.Repository, service *Service, workerID string) *JobRunner {
 	return &JobRunner{
 		repository: repository,
 		service:    service,
@@ -60,16 +63,16 @@ func (runner *JobRunner) ProcessNext(_ context.Context) (bool, error) {
 	return true, runner.repository.CompleteJob(job.ID)
 }
 
-func (runner *JobRunner) handle(job *Job) error {
+func (runner *JobRunner) handle(job *models.Job) error {
 	switch job.Type {
-	case JobEmbedThoughtVersion:
+	case models.JobEmbedThoughtVersion:
 		versionID := job.Payload["thoughtVersionId"]
 		versionThoughtID := job.Payload["thoughtId"]
 		thought, err := runner.service.Thought(versionThoughtID)
 		if err != nil {
 			return err
 		}
-		var target *ThoughtVersion
+		var target *models.ThoughtVersion
 		for _, version := range thought.Versions {
 			if version.ID == versionID {
 				target = version
@@ -83,22 +86,22 @@ func (runner *JobRunner) handle(job *Job) error {
 		if err != nil {
 			return err
 		}
-		if _, err := runner.repository.SaveThoughtVersionEnrichment(versionID, embedding, nil, ProcessingProcessing, []string{"Embedding generated"}); err != nil {
+		if _, err := runner.repository.SaveThoughtVersionEnrichment(versionID, embedding, nil, models.ProcessingProcessing, []string{"Embedding generated"}); err != nil {
 			return err
 		}
-		_, err = runner.repository.EnqueueJob(&Job{
-			Type:        JobExtractConcepts,
+		_, err = runner.repository.EnqueueJob(&models.Job{
+			Type:        models.JobExtractConcepts,
 			EntityType:  "thought_version",
 			EntityID:    versionID,
 			Payload:     map[string]string{"thoughtVersionId": versionID, "thoughtId": versionThoughtID},
 			MaxAttempts: 3,
 		})
 		return err
-	case JobExtractConcepts:
+	case models.JobExtractConcepts:
 		return runner.service.enrichThoughtVersion(job.Payload["thoughtVersionId"], job.Payload["thoughtId"])
-	case JobLinkThought:
+	case models.JobLinkThought:
 		return runner.service.linkThought(job.Payload["thoughtId"])
-	case JobRefreshConceptSummary:
+	case models.JobRefreshConceptSummary:
 		return runner.service.refreshConceptSummary(job.Payload["conceptId"])
 	default:
 		return fmt.Errorf("unsupported job type %s", job.Type)

@@ -1,4 +1,4 @@
-package allude
+package shared
 
 import (
 	"crypto/rand"
@@ -13,12 +13,12 @@ const ViewerID = "00000000-0000-0000-0000-000000000001"
 
 var idCounter uint64
 
-func createID(prefix string) string {
+func CreateID(prefix string) string {
 	value := atomic.AddUint64(&idCounter, 1)
 	return fmt.Sprintf("%s_%x", prefix, value)
 }
 
-func newUUID() string {
+func NewUUID() string {
 	bytes := make([]byte, 16)
 	_, _ = rand.Read(bytes)
 	bytes[6] = (bytes[6] & 0x0f) | 0x40
@@ -32,15 +32,15 @@ func newUUID() string {
 	)
 }
 
-func nowISO() string {
+func NowISO() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
 
-func normalizeConceptName(input string) string {
+func NormalizeConceptName(input string) string {
 	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(input))), " ")
 }
 
-func cosineSimilarity(a, b []float64) float64 {
+func CosineSimilarity(a, b []float64) float64 {
 	if len(a) == 0 || len(a) != len(b) {
 		return 0
 	}
@@ -58,7 +58,7 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-func clamp(value, minimum, maximum int) int {
+func Clamp(value, minimum, maximum int) int {
 	if value < minimum {
 		return minimum
 	}

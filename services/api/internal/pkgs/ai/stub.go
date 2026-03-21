@@ -1,21 +1,12 @@
-package allude
+package ai
 
 import (
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/bbw9n/allude/services/api/internal/domains/ports"
 )
-
-type AnalysisResult struct {
-	Embedding []float64
-	Concepts  []string
-	Notes     []string
-}
-
-type AIProvider interface {
-	AnalyzeThought(content string) (*AnalysisResult, error)
-	EmbedQuery(content string) ([]float64, error)
-}
 
 type StubAIProvider struct{}
 
@@ -27,7 +18,7 @@ var stopWords = map[string]struct{}{
 	"would": {},
 }
 
-func (provider *StubAIProvider) AnalyzeThought(content string) (*AnalysisResult, error) {
+func (provider *StubAIProvider) AnalyzeThought(content string) (*ports.AnalysisResult, error) {
 	concepts := extractKeywords(content)
 	notes := []string{"Related-thought candidates scored by semantic similarity"}
 	if len(concepts) > 0 {
@@ -35,7 +26,7 @@ func (provider *StubAIProvider) AnalyzeThought(content string) (*AnalysisResult,
 	} else {
 		notes = []string{"No strong concepts detected yet"}
 	}
-	return &AnalysisResult{
+	return &ports.AnalysisResult{
 		Embedding: createEmbedding(content),
 		Concepts:  concepts,
 		Notes:     notes,

@@ -1,4 +1,4 @@
-package allude
+package models
 
 type ProcessingStatus string
 

@@ -1,4 +1,4 @@
-package allude
+package actions_test
 
 import (
 	"bytes"
@@ -6,10 +6,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	actions "github.com/bbw9n/allude/services/api/internal/actions"
+	models "github.com/bbw9n/allude/services/api/internal/domains/models"
+	"github.com/bbw9n/allude/services/api/internal/pkgs/ai"
+	apiGraphql "github.com/bbw9n/allude/services/api/internal/pkgs/graphql"
+	memstore "github.com/bbw9n/allude/services/api/internal/pkgs/storage/memory"
 )
 
 func TestCreateThoughtQueuesJobsAndPreservesVersions(t *testing.T) {
-	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
 	created, err := service.CreateThought("Stoicism helps founders endure uncertainty and pressure.")
 	if err != nil {
 		t.Fatalf("create thought: %v", err)
@@ -27,7 +33,7 @@ func TestCreateThoughtQueuesJobsAndPreservesVersions(t *testing.T) {
 	if hydrated.CurrentVersion.VersionNo != 1 {
 		t.Fatalf("expected version 1, got %d", hydrated.CurrentVersion.VersionNo)
 	}
-	if hydrated.ProcessingStatus != ProcessingReady {
+	if hydrated.ProcessingStatus != models.ProcessingReady {
 		t.Fatalf("expected ready status, got %s", hydrated.ProcessingStatus)
 	}
 	if len(hydrated.Concepts) == 0 {
@@ -44,7 +50,7 @@ func TestCreateThoughtQueuesJobsAndPreservesVersions(t *testing.T) {
 }
 
 func TestGraphAndConceptQueriesAfterEnrichment(t *testing.T) {
-	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
 	first, _ := service.CreateThought("Stoicism and boxing both train discipline under discomfort.")
 	second, _ := service.CreateThought("Founder psychology borrows discipline rituals from martial arts.")
 	_, _ = service.CreateThought("Cities can make loneliness feel louder than solitude.")
@@ -59,10 +65,11 @@ func TestGraphAndConceptQueriesAfterEnrichment(t *testing.T) {
 	if graph.Center.Thought.ID != first.ID {
 		t.Fatalf("expected center %s, got %s", first.ID, graph.Center.Thought.ID)
 	}
-	related, err := service.repository.GetRelatedThoughts(first.ID, 8)
+	hydratedFirst, err := service.Thought(first.ID)
 	if err != nil {
-		t.Fatalf("related thoughts: %v", err)
+		t.Fatalf("fetch hydrated thought: %v", err)
 	}
+	related := hydratedFirst.RelatedThoughts
 	found := false
 	for _, thought := range related {
 		if thought.ID == second.ID {
@@ -83,7 +90,7 @@ func TestGraphAndConceptQueriesAfterEnrichment(t *testing.T) {
 }
 
 func TestHybridSearchAndCollections(t *testing.T) {
-	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
 	created, _ := service.CreateThought("Boredom and creativity need silence.")
 	if err := service.DrainJobs(8); err != nil {
 		t.Fatalf("drain jobs: %v", err)
@@ -105,8 +112,8 @@ func TestHybridSearchAndCollections(t *testing.T) {
 }
 
 func TestGraphQLServerSupportsQueriesAndMutations(t *testing.T) {
-	service := NewService(NewInMemoryRepository(), &StubAIProvider{})
-	server, err := NewGraphQLServer(service)
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+	server, err := apiGraphql.NewGraphQLServer(service)
 	if err != nil {
 		t.Fatalf("schema: %v", err)
 	}

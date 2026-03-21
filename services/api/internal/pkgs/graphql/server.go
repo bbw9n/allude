@@ -1,18 +1,25 @@
-package allude
+package graphql
 
 import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/bbw9n/allude/services/api/internal/actions"
+	"github.com/bbw9n/allude/services/api/internal/domains/models"
 	"github.com/graphql-go/graphql"
 )
 
+type Thought = models.Thought
+type ThoughtVersion = models.ThoughtVersion
+type ThoughtLink = models.ThoughtLink
+type Concept = models.Concept
+
 type GraphQLServer struct {
-	service *Service
+	service *actions.Service
 	schema  graphql.Schema
 }
 
-func NewGraphQLServer(service *Service) (*GraphQLServer, error) {
+func NewGraphQLServer(service *actions.Service) (*GraphQLServer, error) {
 	server := &GraphQLServer{service: service}
 	schema, err := server.buildSchema()
 	if err != nil {
@@ -80,7 +87,7 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 			"version": &graphql.Field{
 				Type: graphql.NewNonNull(graphql.Int),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return p.Source.(*ThoughtVersion).VersionNo, nil
+					return p.Source.(*models.ThoughtVersion).VersionNo, nil
 				},
 			},
 			"content":          &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
@@ -103,14 +110,14 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 			"score": &graphql.Field{
 				Type: graphql.Float,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return p.Source.(*ThoughtLink).Weight, nil
+					return p.Source.(*models.ThoughtLink).Weight, nil
 				},
 			},
 			"source": &graphql.Field{Type: graphql.String},
 			"origin": &graphql.Field{
 				Type: graphql.String,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return p.Source.(*ThoughtLink).Source, nil
+					return p.Source.(*models.ThoughtLink).Source, nil
 				},
 			},
 			"explanation": &graphql.Field{Type: graphql.String},
@@ -144,7 +151,7 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 				"name": &graphql.Field{
 					Type: graphql.NewNonNull(graphql.String),
 					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-						return p.Source.(*Concept).CanonicalName, nil
+						return p.Source.(*models.Concept).CanonicalName, nil
 					},
 				},
 				"slug":            &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
