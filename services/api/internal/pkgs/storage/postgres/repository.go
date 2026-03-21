@@ -814,6 +814,8 @@ func (repository *PostgresRepository) loadConcept(where string, arg string) (*Co
 	}
 	concept.TopThoughts, _ = repository.GetConceptThoughts(concept.ID, 8)
 	concept.RelatedConcepts, _ = repository.GetRelatedConcepts(concept.ID, 8)
+	concept.ContradictionThoughts, _ = repository.getConceptContradictionThoughts(concept.ID, 6)
+	concept.ThoughtCount, _ = repository.getConceptThoughtCount(concept.ID)
 	return concept, nil
 }
 
@@ -1028,6 +1030,45 @@ func vectorLiteral(values []float64) string {
 	return "[" + strings.Join(parts, ",") + "]"
 }
 
+func (repository *PostgresRepository) getConceptThoughtCount(conceptID string) (int, error) {
+	ctx := context.Background()
+	var count int
+	err := repository.db.NewRaw(`
+		SELECT COUNT(DISTINCT t.id)
+		FROM thought_concepts tc
+		JOIN thought_versions tv ON tv.id = tc.thought_version_id
+		JOIN thoughts t ON t.current_version_id = tv.id
+		WHERE tc.concept_id = ?`, conceptID).Scan(ctx, &count)
+	return count, err
+}
+
+func (repository *PostgresRepository) getConceptContradictionThoughts(conceptID string, limit int) ([]*Thought, error) {
+	ctx := context.Background()
+	var thoughtIDs []string
+	err := repository.db.NewRaw(`
+		SELECT DISTINCT t.id
+		FROM thought_links tl
+		JOIN thoughts t ON t.id IN (tl.source_thought_id, tl.target_thought_id)
+		JOIN thought_versions tv ON tv.id = t.current_version_id
+		JOIN thought_concepts tc ON tc.thought_version_id = tv.id
+		WHERE tl.relation_type = ?
+		  AND tc.concept_id = ?
+		ORDER BY t.updated_at DESC
+		LIMIT ?`, string(RelationContradict), conceptID, limit).Scan(ctx, &thoughtIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Thought, 0, len(thoughtIDs))
+	for _, thoughtID := range thoughtIDs {
+		thought, getErr := repository.GetThought(thoughtID)
+		if getErr == nil {
+			thought.RelatedThoughts = nil
+			result = append(result, thought)
+		}
+	}
+	return result, nil
+}
+
 func cloneConceptBase(concept *Concept) *Concept {
 	if concept == nil {
 		return nil
@@ -1036,5 +1077,6 @@ func cloneConceptBase(concept *Concept) *Concept {
 	clone.Aliases = nil
 	clone.RelatedConcepts = nil
 	clone.TopThoughts = nil
+	clone.ContradictionThoughts = nil
 	return &clone
 }

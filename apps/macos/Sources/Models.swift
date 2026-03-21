@@ -18,9 +18,22 @@ struct ThoughtVersion: Decodable, Hashable, Identifiable {
 struct Concept: Decodable, Hashable, Identifiable {
     let id: String
     let name: String
+    let slug: String?
+    let description: String?
+    let conceptType: String?
+    let thoughtCount: Int?
+    let aliases: [ConceptAlias]?
     let createdAt: String
     let relatedConcepts: [Concept]?
     let topThoughts: [Thought]?
+    let contradictionThoughts: [Thought]?
+}
+
+struct ConceptAlias: Decodable, Hashable, Identifiable {
+    let id: String
+    let conceptId: String
+    let alias: String
+    let normalizedAlias: String
 }
 
 struct ThoughtLink: Decodable, Hashable, Identifiable {
@@ -56,6 +69,22 @@ struct SearchCluster: Decodable, Hashable {
 struct SearchThoughtsResult: Decodable, Hashable {
     let thoughts: [Thought]
     let clusters: [SearchCluster]
+}
+
+struct DraftSuggestions: Decodable, Hashable {
+    let relatedConcepts: [String]
+    let supportingThoughts: [Thought]
+    let counterThoughts: [Thought]
+    let reframes: [String]
+    let notes: [String]
+
+    static let empty = DraftSuggestions(
+        relatedConcepts: [],
+        supportingThoughts: [],
+        counterThoughts: [],
+        reframes: [],
+        notes: []
+    )
 }
 
 struct GraphNode: Decodable, Hashable, Identifiable {

@@ -87,6 +87,9 @@ func TestGraphAndConceptQueriesAfterEnrichment(t *testing.T) {
 	if concept == nil || len(concept.TopThoughts) == 0 {
 		t.Fatal("expected concept page to include top thoughts")
 	}
+	if concept.ThoughtCount == 0 {
+		t.Fatal("expected concept page to include thought count")
+	}
 }
 
 func TestHybridSearchAndCollections(t *testing.T) {
@@ -108,6 +111,30 @@ func TestHybridSearchAndCollections(t *testing.T) {
 	}
 	if len(result.Thoughts) == 0 {
 		t.Fatal("expected search results")
+	}
+}
+
+func TestDraftSuggestionsReturnsConceptsAndRelatedThoughts(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+	_, _ = service.CreateThought("Stoicism helps founders build discipline under pressure.")
+	_, _ = service.CreateThought("Boxing turns discipline into a physical practice.")
+	_, _ = service.CreateThought("Founders should not treat stoicism as emotional suppression.")
+	if err := service.DrainJobs(24); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+
+	suggestions, err := service.DraftSuggestions("Stoicism can help founders stay disciplined during hard periods.", "")
+	if err != nil {
+		t.Fatalf("draft suggestions: %v", err)
+	}
+	if len(suggestions.RelatedConcepts) == 0 {
+		t.Fatal("expected related concepts")
+	}
+	if len(suggestions.SupportingThoughts) == 0 {
+		t.Fatal("expected supporting thoughts")
+	}
+	if len(suggestions.Reframes) == 0 {
+		t.Fatal("expected reframes")
 	}
 }
 
@@ -142,5 +169,15 @@ func TestGraphQLServerSupportsQueriesAndMutations(t *testing.T) {
 	server.ServeHTTP(searchResponse, searchRequest)
 	if !bytes.Contains(searchResponse.Body.Bytes(), []byte("searchThoughts")) {
 		t.Fatalf("expected searchThoughts payload, got %s", searchResponse.Body.String())
+	}
+
+	suggestionBody, _ := json.Marshal(map[string]interface{}{
+		"query": "{ draftSuggestions(content: \"Stoicism builds discipline\") { relatedConcepts reframes } }",
+	})
+	suggestionRequest := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(suggestionBody))
+	suggestionResponse := httptest.NewRecorder()
+	server.ServeHTTP(suggestionResponse, suggestionRequest)
+	if !bytes.Contains(suggestionResponse.Body.Bytes(), []byte("draftSuggestions")) {
+		t.Fatalf("expected draftSuggestions payload, got %s", suggestionResponse.Body.String())
 	}
 }

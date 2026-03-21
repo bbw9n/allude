@@ -689,6 +689,8 @@ func (repository *InMemoryRepository) hydrateConceptLocked(base *Concept) *Conce
 	}
 	concept.TopThoughts, _ = repository.GetConceptThoughts(concept.ID, 8)
 	concept.RelatedConcepts, _ = repository.GetRelatedConcepts(concept.ID, 8)
+	concept.ContradictionThoughts = repository.contradictionThoughtsForConceptLocked(concept.ID, 6)
+	concept.ThoughtCount = repository.thoughtCountForConceptLocked(concept.ID)
 	return concept
 }
 
@@ -871,9 +873,70 @@ func cloneConceptBase(concept *Concept) *Concept {
 		Slug:          concept.Slug,
 		Description:   concept.Description,
 		ConceptType:   concept.ConceptType,
+		ThoughtCount:  concept.ThoughtCount,
 		CreatedAt:     concept.CreatedAt,
 		UpdatedAt:     concept.UpdatedAt,
 	}
+}
+
+func (repository *InMemoryRepository) thoughtCountForConceptLocked(conceptID string) int {
+	count := 0
+	for _, thought := range repository.thoughts {
+		if thought.CurrentVersionID == "" {
+			continue
+		}
+		if _, exists := repository.thoughtConcepts[thought.CurrentVersionID][conceptID]; exists {
+			count++
+		}
+	}
+	return count
+}
+
+func (repository *InMemoryRepository) contradictionThoughtsForConceptLocked(conceptID string, limit int) []*Thought {
+	scored := map[string]float64{}
+	for _, link := range repository.thoughtLinks {
+		if link.RelationType != RelationContradict {
+			continue
+		}
+		source := repository.thoughts[link.SourceThoughtID]
+		target := repository.thoughts[link.TargetThoughtID]
+		if source == nil || target == nil || source.CurrentVersionID == "" || target.CurrentVersionID == "" {
+			continue
+		}
+		sourceHas := repository.thoughtConcepts[source.CurrentVersionID][conceptID] != nil
+		targetHas := repository.thoughtConcepts[target.CurrentVersionID][conceptID] != nil
+		if !sourceHas && !targetHas {
+			continue
+		}
+		if sourceHas {
+			scored[source.ID] = semantics.MaxFloat(scored[source.ID], link.Weight)
+		}
+		if targetHas {
+			scored[target.ID] = semantics.MaxFloat(scored[target.ID], link.Weight)
+		}
+	}
+
+	type rankedThought struct {
+		id    string
+		score float64
+	}
+	ranked := make([]rankedThought, 0, len(scored))
+	for id, score := range scored {
+		ranked = append(ranked, rankedThought{id: id, score: score})
+	}
+	sort.Slice(ranked, func(i, j int) bool { return ranked[i].score > ranked[j].score })
+	if len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+
+	result := make([]*Thought, 0, len(ranked))
+	for _, item := range ranked {
+		thought, err := repository.hydrateThoughtLocked(item.id, false, false)
+		if err == nil {
+			result = append(result, thought)
+		}
+	}
+	return result
 }
 
 func cloneCollectionBase(collection *Collection) *Collection {

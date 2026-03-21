@@ -10,13 +10,16 @@ final class AppModel: ObservableObject {
     @Published var graph: GraphNeighborhood?
     @Published var telescopeQuery = ""
     @Published var searchResult = SearchThoughtsResult(thoughts: [], clusters: [])
+    @Published var draftSuggestions = DraftSuggestions.empty
     @Published var draft = ""
     @Published var isSaving = false
     @Published var isSearching = false
     @Published var isRefreshingGraph = false
+    @Published var isRefreshingDraftSuggestions = false
     @Published var errorMessage: String?
 
     private let client = GraphQLClient()
+    private var draftSuggestionTask: Task<Void, Never>?
 
     func saveDraft() async {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -44,6 +47,7 @@ final class AppModel: ObservableObject {
             }
 
             draft = ""
+            draftSuggestions = .empty
             try? await Task.sleep(for: .milliseconds(150))
             await refreshSelectedThought()
         } catch {
@@ -132,6 +136,7 @@ final class AppModel: ObservableObject {
     func selectThought(_ thought: Thought) {
         selectedThought = thought
         draft = thought.currentVersion.content
+        scheduleDraftSuggestions()
         Task {
             await refreshSelectedThought()
         }
@@ -140,7 +145,43 @@ final class AppModel: ObservableObject {
     func startNewThought() {
         selectedThought = nil
         draft = ""
+        draftSuggestions = .empty
         selectedSection = .composer
+    }
+
+    func scheduleDraftSuggestions() {
+        draftSuggestionTask?.cancel()
+
+        let currentDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard currentDraft.count >= 12 else {
+            draftSuggestions = .empty
+            isRefreshingDraftSuggestions = false
+            return
+        }
+
+        let thoughtID = selectedThought?.id
+        draftSuggestionTask = Task { @MainActor [client, currentDraft, thoughtID] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            isRefreshingDraftSuggestions = true
+            do {
+                let data = try await client.send(
+                    query: AlludeAPI.draftSuggestions,
+                    variables: [
+                        "content": AnyEncodable(currentDraft),
+                        "thoughtId": AnyEncodable(thoughtID)
+                    ],
+                    data: DraftSuggestionsData.self
+                )
+                guard !Task.isCancelled else { return }
+                draftSuggestions = data.draftSuggestions
+                isRefreshingDraftSuggestions = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                draftSuggestions = .empty
+                isRefreshingDraftSuggestions = false
+            }
+        }
     }
 
     private func upserting(thought: Thought, into list: [Thought]) -> [Thought] {

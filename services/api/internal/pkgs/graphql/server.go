@@ -154,14 +154,16 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 						return p.Source.(*models.Concept).CanonicalName, nil
 					},
 				},
-				"slug":            &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-				"description":     &graphql.Field{Type: graphql.String},
-				"conceptType":     &graphql.Field{Type: graphql.String},
-				"aliases":         &graphql.Field{Type: graphql.NewList(conceptAliasType)},
-				"relatedConcepts": &graphql.Field{Type: graphql.NewList(conceptType)},
-				"topThoughts":     &graphql.Field{Type: graphql.NewList(thoughtType)},
-				"createdAt":       &graphql.Field{Type: graphql.String},
-				"updatedAt":       &graphql.Field{Type: graphql.String},
+				"slug":                  &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+				"description":           &graphql.Field{Type: graphql.String},
+				"conceptType":           &graphql.Field{Type: graphql.String},
+				"thoughtCount":          &graphql.Field{Type: graphql.Int},
+				"aliases":               &graphql.Field{Type: graphql.NewList(conceptAliasType)},
+				"relatedConcepts":       &graphql.Field{Type: graphql.NewList(conceptType)},
+				"topThoughts":           &graphql.Field{Type: graphql.NewList(thoughtType)},
+				"contradictionThoughts": &graphql.Field{Type: graphql.NewList(thoughtType)},
+				"createdAt":             &graphql.Field{Type: graphql.String},
+				"updatedAt":             &graphql.Field{Type: graphql.String},
 			}
 		}),
 	})
@@ -251,6 +253,17 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 		},
 	})
 
+	draftSuggestionsType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "DraftSuggestions",
+		Fields: graphql.Fields{
+			"relatedConcepts":    &graphql.Field{Type: graphql.NewList(graphql.String)},
+			"supportingThoughts": &graphql.Field{Type: graphql.NewList(thoughtType)},
+			"counterThoughts":    &graphql.Field{Type: graphql.NewList(thoughtType)},
+			"reframes":           &graphql.Field{Type: graphql.NewList(graphql.String)},
+			"notes":              &graphql.Field{Type: graphql.NewList(graphql.String)},
+		},
+	})
+
 	engagementType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "EngagementEvent",
 		Fields: graphql.Fields{
@@ -309,6 +322,19 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 				Args: graphql.FieldConfigArgument{"query": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)}},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					return server.service.SearchThoughts(p.Args["query"].(string))
+				},
+			},
+			"draftSuggestions": &graphql.Field{
+				Type: draftSuggestionsType,
+				Args: graphql.FieldConfigArgument{
+					"content":   &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+					"thoughtId": &graphql.ArgumentConfig{Type: graphql.ID},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.DraftSuggestions(
+						p.Args["content"].(string),
+						optionalString(p.Args, "thoughtId"),
+					)
 				},
 			},
 			"graph": &graphql.Field{

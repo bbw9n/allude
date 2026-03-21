@@ -81,17 +81,19 @@ type ThoughtVersion struct {
 }
 
 type Concept struct {
-	ID              string          `json:"id"`
-	CanonicalName   string          `json:"canonicalName"`
-	Slug            string          `json:"slug"`
-	Description     string          `json:"description,omitempty"`
-	Embedding       []float64       `json:"-"`
-	ConceptType     string          `json:"conceptType,omitempty"`
-	Aliases         []*ConceptAlias `json:"aliases,omitempty"`
-	RelatedConcepts []*Concept      `json:"relatedConcepts,omitempty"`
-	TopThoughts     []*Thought      `json:"topThoughts,omitempty"`
-	CreatedAt       string          `json:"createdAt"`
-	UpdatedAt       string          `json:"updatedAt"`
+	ID                    string          `json:"id"`
+	CanonicalName         string          `json:"canonicalName"`
+	Slug                  string          `json:"slug"`
+	Description           string          `json:"description,omitempty"`
+	Embedding             []float64       `json:"-"`
+	ConceptType           string          `json:"conceptType,omitempty"`
+	ThoughtCount          int             `json:"thoughtCount"`
+	Aliases               []*ConceptAlias `json:"aliases,omitempty"`
+	RelatedConcepts       []*Concept      `json:"relatedConcepts,omitempty"`
+	TopThoughts           []*Thought      `json:"topThoughts,omitempty"`
+	ContradictionThoughts []*Thought      `json:"contradictionThoughts,omitempty"`
+	CreatedAt             string          `json:"createdAt"`
+	UpdatedAt             string          `json:"updatedAt"`
 }
 
 type ConceptAlias struct {
@@ -187,6 +189,14 @@ type SearchCluster struct {
 type SearchThoughtsResult struct {
 	Thoughts []*Thought       `json:"thoughts"`
 	Clusters []*SearchCluster `json:"clusters"`
+}
+
+type DraftSuggestions struct {
+	RelatedConcepts    []string   `json:"relatedConcepts"`
+	SupportingThoughts []*Thought `json:"supportingThoughts"`
+	CounterThoughts    []*Thought `json:"counterThoughts"`
+	Reframes           []string   `json:"reframes"`
+	Notes              []string   `json:"notes"`
 }
 
 type Job struct {

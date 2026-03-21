@@ -22,8 +22,11 @@ struct ComposerView: View {
                             Text("Capture an observation, question, argument, or quote...")
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 24)
-                                .padding(.vertical, 26)
+                            .padding(.vertical, 26)
                         }
+                    }
+                    .onChange(of: model.draft) { _, _ in
+                        model.scheduleDraftSuggestions()
                     }
 
                 HStack {
@@ -46,7 +49,12 @@ struct ComposerView: View {
                 }
             }
 
-            AIInsightPanel(thought: model.selectedThought)
+            AIInsightPanel(
+                thought: model.selectedThought,
+                suggestions: model.draftSuggestions,
+                isRefreshing: model.isRefreshingDraftSuggestions,
+                openThought: { thought in model.selectThought(thought) }
+            )
                 .frame(width: 360)
         }
         .padding(32)
@@ -55,21 +63,55 @@ struct ComposerView: View {
 
 struct AIInsightPanel: View {
     let thought: Thought?
+    let suggestions: DraftSuggestions
+    let isRefreshing: Bool
+    let openThought: (Thought) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("AI Suggestions")
-                .font(.system(size: 22, weight: .bold))
+            HStack {
+                Text("AI Suggestions")
+                    .font(.system(size: 22, weight: .bold))
+                Spacer()
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Related concepts")
                         .font(.system(size: 13, weight: .semibold))
-                    if let thought, !thought.concepts.isEmpty {
+                    if !suggestions.relatedConcepts.isEmpty {
+                        FlowLayout(items: suggestions.relatedConcepts)
+                    } else if let thought, !thought.concepts.isEmpty {
                         FlowLayout(items: thought.concepts.map(\.name))
                     } else {
-                        Text("Save a thought to extract concept nodes.")
+                        Text("Keep drafting and concept links will appear here.")
                             .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Supporting thoughts")
+                        .font(.system(size: 13, weight: .semibold))
+                    if !suggestions.supportingThoughts.isEmpty {
+                        ForEach(suggestions.supportingThoughts.prefix(3)) { candidate in
+                            Button {
+                                openThought(candidate)
+                            } label: {
+                                Text(candidate.currentVersion.content)
+                                    .font(.system(size: 12))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } else {
+                        Text("Nearby supporting thoughts will show up here.")
+                        .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -78,13 +120,35 @@ struct AIInsightPanel: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Counterarguments")
                         .font(.system(size: 13, weight: .semibold))
-                    if let thought, let related = thought.relatedThoughts, !related.isEmpty {
-                        ForEach(related.prefix(3)) { candidate in
-                            Text(candidate.currentVersion.content)
+                    if !suggestions.counterThoughts.isEmpty {
+                        ForEach(suggestions.counterThoughts.prefix(3)) { candidate in
+                            Button {
+                                openThought(candidate)
+                            } label: {
+                                Text(candidate.currentVersion.content)
+                                    .font(.system(size: 12))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } else {
+                        Text("Tensions and competing framings will appear here.")
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Reframes")
+                        .font(.system(size: 13, weight: .semibold))
+                    if !suggestions.reframes.isEmpty {
+                        ForEach(suggestions.reframes, id: \.self) { reframe in
+                            Text("• \(reframe)")
                                 .font(.system(size: 12))
                         }
                     } else {
-                        Text("Contrasting thoughts will appear here once the graph has neighbors.")
+                        Text("Revision suggestions will appear as you develop the draft.")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -94,13 +158,18 @@ struct AIInsightPanel: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Analysis notes")
                         .font(.system(size: 13, weight: .semibold))
-                    if let thought, !thought.processingNotes.isEmpty {
+                    if !suggestions.notes.isEmpty {
+                        ForEach(suggestions.notes, id: \.self) { note in
+                            Text("• \(note)")
+                                .font(.system(size: 12))
+                        }
+                    } else if let thought, !thought.processingNotes.isEmpty {
                         ForEach(thought.processingNotes, id: \.self) { note in
                             Text("• \(note)")
                                 .font(.system(size: 12))
                         }
                     } else {
-                        Text("The backend marks processing state here after concept extraction and linking.")
+                        Text("The backend will annotate how it interpreted the draft.")
                             .foregroundStyle(.secondary)
                     }
                 }

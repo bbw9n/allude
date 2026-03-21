@@ -86,6 +86,59 @@ func (service *Service) SearchThoughts(query string) (*models.SearchThoughtsResu
 	return service.repository.SearchThoughts(query, embedding, 12)
 }
 
+func (service *Service) DraftSuggestions(content, thoughtID string) (*models.DraftSuggestions, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return &models.DraftSuggestions{}, nil
+	}
+
+	analysis, err := service.ai.AnalyzeThought(trimmed)
+	if err != nil {
+		return nil, err
+	}
+
+	draftThought := &models.Thought{
+		ID: thoughtID,
+		CurrentVersion: &models.ThoughtVersion{
+			Content:   trimmed,
+			Embedding: analysis.Embedding,
+		},
+		Concepts: conceptsFromNames(analysis.Concepts),
+	}
+
+	result := &models.DraftSuggestions{
+		RelatedConcepts: uniqueLimitedStrings(analysis.Concepts, 6),
+		Notes:           append([]string(nil), analysis.Notes...),
+	}
+
+	searchResult, err := service.repository.SearchThoughts(trimmed, analysis.Embedding, 8)
+	if err != nil {
+		return result, nil
+	}
+
+	for _, candidate := range searchResult.Thoughts {
+		if candidate.ID == thoughtID || candidate.CurrentVersion == nil {
+			continue
+		}
+		score := semantics.CombinedRelationshipScore(draftThought, candidate)
+		if score < 0.15 {
+			continue
+		}
+		if semantics.RelationTypeForThoughts(draftThought, candidate) == models.RelationContradict {
+			if len(result.CounterThoughts) < 3 {
+				result.CounterThoughts = append(result.CounterThoughts, candidate)
+			}
+			continue
+		}
+		if len(result.SupportingThoughts) < 3 {
+			result.SupportingThoughts = append(result.SupportingThoughts, candidate)
+		}
+	}
+
+	result.Reframes = buildReframes(result.RelatedConcepts, result.SupportingThoughts, result.CounterThoughts)
+	return result, nil
+}
+
 func (service *Service) Graph(centerThoughtID string, hopCount, limit int) (*models.GraphNeighborhood, error) {
 	return service.repository.GetGraphNeighborhood(centerThoughtID, hopCount, limit)
 }
@@ -218,4 +271,61 @@ func (service *Service) linkThought(thoughtID string) error {
 
 func (service *Service) refreshConceptSummary(_ string) error {
 	return nil
+}
+
+func conceptsFromNames(names []string) []*models.Concept {
+	concepts := make([]*models.Concept, 0, len(names))
+	for _, name := range uniqueLimitedStrings(names, 6) {
+		concepts = append(concepts, &models.Concept{
+			ID:            strings.ToLower(strings.ReplaceAll(name, " ", "-")),
+			CanonicalName: name,
+			Slug:          strings.ToLower(strings.ReplaceAll(name, " ", "-")),
+		})
+	}
+	return concepts
+}
+
+func uniqueLimitedStrings(values []string, limit int) []string {
+	seen := map[string]struct{}{}
+	capacity := len(values)
+	if limit < capacity {
+		capacity = limit
+	}
+	result := make([]string, 0, capacity)
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, trimmed)
+		if len(result) == limit {
+			break
+		}
+	}
+	return result
+}
+
+func buildReframes(concepts []string, supportingThoughts, counterThoughts []*models.Thought) []string {
+	reframes := make([]string, 0, 3)
+	if len(concepts) > 0 {
+		reframes = append(reframes, "Anchor this thought more explicitly in "+concepts[0]+".")
+	}
+	if len(supportingThoughts) > 0 {
+		reframes = append(reframes, "Make the argument more concrete by adding an example or mechanism.")
+	}
+	if len(counterThoughts) > 0 {
+		reframes = append(reframes, "Name the strongest tension or counterargument directly in the draft.")
+	}
+	if len(reframes) == 0 {
+		reframes = append(reframes, "Tighten the claim by making the core idea more specific.")
+	}
+	if len(concepts) > 0 {
+		reframes[0] = "Anchor this thought more explicitly in " + concepts[0] + "."
+	}
+	return reframes
 }

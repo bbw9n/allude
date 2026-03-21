@@ -26,7 +26,7 @@ enum AlludeAPI {
       name
       createdAt
     }
-    relatedThoughts(limit: 8) {
+    relatedThoughts {
       id
       processingStatus
       processingNotes
@@ -45,7 +45,7 @@ enum AlludeAPI {
         createdAt
       }
     }
-    links(limit: 8) {
+    links {
       id
       sourceThoughtId
       targetThoughtId
@@ -138,13 +138,43 @@ enum AlludeAPI {
       concept(id: $id) {
         id
         name
+        slug
+        description
+        conceptType
+        thoughtCount
+        aliases {
+          id
+          conceptId
+          alias
+          normalizedAlias
+        }
         createdAt
-        relatedConcepts(limit: 8) {
+        relatedConcepts {
           id
           name
+          slug
           createdAt
         }
-        topThoughts(limit: 8) {
+        topThoughts {
+          \(thoughtFields)
+        }
+        contradictionThoughts {
+          \(thoughtFields)
+        }
+      }
+    }
+    """
+
+    static let draftSuggestions = """
+    query DraftSuggestions($content: String!, $thoughtId: ID) {
+      draftSuggestions(content: $content, thoughtId: $thoughtId) {
+        relatedConcepts
+        reframes
+        notes
+        supportingThoughts {
+          \(thoughtFields)
+        }
+        counterThoughts {
           \(thoughtFields)
         }
       }
@@ -174,4 +204,8 @@ struct GraphData: Decodable {
 
 struct ConceptData: Decodable {
     let concept: Concept?
+}
+
+struct DraftSuggestionsData: Decodable {
+    let draftSuggestions: DraftSuggestions
 }

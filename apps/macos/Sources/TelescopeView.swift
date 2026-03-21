@@ -66,7 +66,7 @@ struct TelescopeView: View {
                                 ForEach(model.searchResult.thoughts) { thought in
                                     Button {
                                         model.selectThought(thought)
-                                        model.selectedSection = .constellation
+                                        model.selectedSection = .telescope
                                     } label: {
                                         VStack(alignment: .leading, spacing: 8) {
                                             Text(thought.currentVersion.content)
@@ -83,6 +83,9 @@ struct TelescopeView: View {
                         }
                     }
                 }
+
+                ThoughtDetailView(thought: model.selectedThought)
+                    .frame(width: 380)
             }
 
             Spacer()
