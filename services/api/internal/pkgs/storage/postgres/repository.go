@@ -690,20 +690,24 @@ func (repository *PostgresRepository) GetConceptByName(name string) (*Concept, e
 
 func (repository *PostgresRepository) GetConceptThoughts(conceptID string, limit int) ([]*Thought, error) {
 	ctx := context.Background()
-	var thoughtIDs []string
+	type thoughtIDRow struct {
+		ID string `bun:"id"`
+	}
+	var rows []thoughtIDRow
 	if err := repository.db.NewRaw(`
-		SELECT DISTINCT t.id
+		SELECT t.id
 		FROM thought_concepts tc
 		JOIN thought_versions tv ON tv.id = tc.thought_version_id
 		JOIN thoughts t ON t.current_version_id = tv.id
 		WHERE tc.concept_id = ?
+		GROUP BY t.id, t.updated_at
 		ORDER BY t.updated_at DESC
-		LIMIT ?`, conceptID, limit).Scan(ctx, &thoughtIDs); err != nil {
+		LIMIT ?`, conceptID, limit).Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
 	var thoughts []*Thought
-	for _, thoughtID := range thoughtIDs {
-		thought, err := repository.GetThought(thoughtID)
+	for _, row := range rows {
+		thought, err := repository.GetThought(row.ID)
 		if err == nil {
 			thoughts = append(thoughts, thought)
 		}
@@ -1209,23 +1213,27 @@ func (repository *PostgresRepository) getConceptThoughtCount(conceptID string) (
 
 func (repository *PostgresRepository) getConceptContradictionThoughts(conceptID string, limit int) ([]*Thought, error) {
 	ctx := context.Background()
-	var thoughtIDs []string
+	type thoughtIDRow struct {
+		ID string `bun:"id"`
+	}
+	var rows []thoughtIDRow
 	err := repository.db.NewRaw(`
-		SELECT DISTINCT t.id
+		SELECT t.id
 		FROM thought_links tl
 		JOIN thoughts t ON t.id IN (tl.source_thought_id, tl.target_thought_id)
 		JOIN thought_versions tv ON tv.id = t.current_version_id
 		JOIN thought_concepts tc ON tc.thought_version_id = tv.id
 		WHERE tl.relation_type = ?
 		  AND tc.concept_id = ?
+		GROUP BY t.id, t.updated_at
 		ORDER BY t.updated_at DESC
-		LIMIT ?`, string(RelationContradict), conceptID, limit).Scan(ctx, &thoughtIDs)
+		LIMIT ?`, string(RelationContradict), conceptID, limit).Scan(ctx, &rows)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*Thought, 0, len(thoughtIDs))
-	for _, thoughtID := range thoughtIDs {
-		thought, getErr := repository.GetThought(thoughtID)
+	result := make([]*Thought, 0, len(rows))
+	for _, row := range rows {
+		thought, getErr := repository.GetThought(row.ID)
 		if getErr == nil {
 			thought.RelatedThoughts = nil
 			result = append(result, thought)
