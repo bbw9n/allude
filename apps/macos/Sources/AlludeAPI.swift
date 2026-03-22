@@ -94,6 +94,89 @@ enum AlludeAPI {
     }
     """
 
+    static let telescope = """
+    query Telescope($query: String!) {
+      telescope(query: $query) {
+        query
+        intent
+        narrative
+        seedConcepts {
+          id
+          name
+          slug
+          createdAt
+        }
+        seedThoughts {
+          \(thoughtFields)
+        }
+        graph {
+          center {
+            x
+            y
+            distance
+            thought {
+              \(thoughtFields)
+            }
+          }
+          nodes {
+            x
+            y
+            distance
+            thought {
+              \(thoughtFields)
+            }
+          }
+          edges {
+            link {
+              id
+              sourceThoughtId
+              targetThoughtId
+              relationType
+              score
+              origin
+              createdAt
+            }
+          }
+        }
+        clusters {
+          label
+          thoughtIds
+          concepts {
+            id
+            name
+            slug
+            createdAt
+          }
+        }
+        suggestedJumps {
+          label
+          query
+          reason
+          thoughtIds
+        }
+        relatedCurrents {
+          id
+          title
+          summary
+          clusterKey
+          freshnessScore
+          qualityScore
+          createdAt
+          updatedAt
+          concepts {
+            id
+            name
+            slug
+            createdAt
+          }
+          thoughts {
+            \(thoughtFields)
+          }
+        }
+      }
+    }
+    """
+
     static let createThought = """
     mutation CreateThought($content: String!) {
       createThought(content: $content) {
@@ -235,6 +318,10 @@ enum AlludeAPI {
 
 struct SearchThoughtsData: Decodable {
     let searchThoughts: SearchThoughtsResult
+}
+
+struct TelescopeData: Decodable {
+    let telescope: TelescopeResult
 }
 
 struct ThoughtData: Decodable {

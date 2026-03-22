@@ -38,9 +38,9 @@ struct TelescopeView: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        ForEach(model.telescopeSuggestedQueries, id: \.self) { suggestion in
-                            Button(suggestion) {
-                                model.applyTelescopeSuggestion(suggestion)
+                        ForEach(model.telescopeSuggestedJumps, id: \.query) { jump in
+                            Button(jump.label) {
+                                model.applyTelescopeSuggestion(jump.query)
                                 Task { await model.search() }
                             }
                             .buttonStyle(.bordered)
@@ -48,6 +48,10 @@ struct TelescopeView: View {
                         }
                     }
                     .padding(.vertical, 2)
+                }
+
+                if !model.telescopeResult.seedConcepts.isEmpty {
+                    FlowLayout(items: model.telescopeResult.seedConcepts.map(\.name))
                 }
             }
             .padding(18)
@@ -59,7 +63,7 @@ struct TelescopeView: View {
                         Text("Cluster signals")
                             .font(.system(size: 18, weight: .bold))
                         Spacer()
-                        if !model.searchResult.clusters.isEmpty {
+                        if !model.telescopeClusters.isEmpty {
                             Button("All") {
                                 model.selectSearchCluster(label: nil)
                             }
@@ -68,11 +72,11 @@ struct TelescopeView: View {
                         }
                     }
 
-                    if model.searchResult.clusters.isEmpty {
+                    if model.telescopeClusters.isEmpty {
                         Text("Try queries like “connections between stoicism and startup culture”.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(model.searchResult.clusters, id: \.label) { cluster in
+                        ForEach(model.telescopeClusters, id: \.label) { cluster in
                             Button {
                                 model.selectSearchCluster(label: cluster.label)
                                 if let firstConcept = cluster.concepts.first {
@@ -103,12 +107,35 @@ struct TelescopeView: View {
                             .buttonStyle(.plain)
                         }
                     }
+
+                    if !model.telescopeRelatedCurrents.isEmpty {
+                        Divider()
+                            .padding(.vertical, 4)
+
+                        Text("Related currents")
+                            .font(.system(size: 16, weight: .bold))
+
+                        ForEach(model.telescopeRelatedCurrents) { current in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(current.title)
+                                    .font(.system(size: 14, weight: .semibold))
+                                if let summary = current.summary, !summary.isEmpty {
+                                    Text(summary)
+                                        .font(.system(size: 12, weight: .regular, design: .serif))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                    }
                 }
                 .frame(width: 300)
 
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
-                        Text("Matching thoughts")
+                        Text("Telescope results")
                             .font(.system(size: 18, weight: .bold))
                         Spacer()
                         Text("\(model.filteredSearchThoughts.count)")
@@ -116,7 +143,7 @@ struct TelescopeView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if model.searchResult.thoughts.isEmpty {
+                    if model.filteredSearchThoughts.isEmpty {
                         Text("Search results will appear here.")
                             .foregroundStyle(.secondary)
                     } else {
@@ -145,6 +172,38 @@ struct TelescopeView: View {
                                 }
                             }
                         }
+                    }
+
+                    if let graph = model.telescopeGraph {
+                        Divider()
+                            .padding(.vertical, 4)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Graph preview")
+                                .font(.system(size: 16, weight: .bold))
+
+                            Text("Centered on \(graph.center.thought.currentVersion.content)")
+                                .font(.system(size: 13, weight: .regular, design: .serif))
+                                .lineLimit(2)
+
+                            ForEach(Array(graph.nodes.prefix(4))) { node in
+                                Button {
+                                    model.selectThought(node.thought)
+                                    model.selectedSection = .constellation
+                                } label: {
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Text("•")
+                                        Text(node.thought.currentVersion.content)
+                                            .font(.system(size: 12, weight: .regular, design: .serif))
+                                            .lineLimit(2)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.white.opacity(0.56), in: RoundedRectangle(cornerRadius: 16))
                     }
                 }
 

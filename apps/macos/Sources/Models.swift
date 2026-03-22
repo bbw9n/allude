@@ -82,6 +82,19 @@ struct Collection: Decodable, Hashable, Identifiable, Sendable {
     let updatedAt: String
 }
 
+struct IdeaCurrent: Decodable, Hashable, Identifiable, Sendable {
+    let id: String
+    let title: String
+    let summary: String?
+    let clusterKey: String?
+    let freshnessScore: Double
+    let qualityScore: Double
+    let concepts: [Concept]?
+    let thoughts: [Thought]?
+    let createdAt: String
+    let updatedAt: String
+}
+
 struct SearchCluster: Decodable, Hashable, Sendable {
     let label: String
     let concepts: [Concept]
@@ -149,6 +162,37 @@ struct ThinkingMapEdge: Identifiable, Hashable, Sendable {
 struct PersonalThinkingMap: Hashable, Sendable {
     let concepts: [ThinkingMapConceptNode]
     let edges: [ThinkingMapEdge]
+}
+
+struct TelescopeJump: Decodable, Hashable, Sendable {
+    let label: String
+    let query: String
+    let reason: String?
+    let thoughtIds: [String]?
+}
+
+struct TelescopeResult: Decodable, Hashable, Sendable {
+    let query: String
+    let intent: String
+    let seedConcepts: [Concept]
+    let seedThoughts: [Thought]
+    let graph: GraphNeighborhood?
+    let clusters: [SearchCluster]
+    let narrative: String
+    let suggestedJumps: [TelescopeJump]
+    let relatedCurrents: [IdeaCurrent]
+
+    static let empty = TelescopeResult(
+        query: "",
+        intent: "explore",
+        seedConcepts: [],
+        seedThoughts: [],
+        graph: nil,
+        clusters: [],
+        narrative: "Search across your idea graph to surface concept clusters, related thoughts, and promising next jumps.",
+        suggestedJumps: [],
+        relatedCurrents: []
+    )
 }
 
 enum SidebarSection: String, CaseIterable, Identifiable, Sendable {

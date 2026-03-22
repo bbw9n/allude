@@ -13,6 +13,7 @@ final class AppModel: ObservableObject {
     @Published var personalThinkingMap = PersonalThinkingMap(concepts: [], edges: [])
     @Published var graph: GraphNeighborhood?
     @Published var telescopeQuery = ""
+    @Published var telescopeResult = TelescopeResult.empty
     @Published var searchResult = SearchThoughtsResult(thoughts: [], clusters: [])
     @Published var selectedSearchClusterLabel: String?
     @Published var draftSuggestions = DraftSuggestions.empty
@@ -74,18 +75,27 @@ final class AppModel: ObservableObject {
 
         do {
             let data = try await client.send(
-                query: AlludeAPI.searchThoughts,
+                query: AlludeAPI.telescope,
                 variables: ["query": trimmed],
-                data: SearchThoughtsData.self
+                data: TelescopeData.self
             )
-            searchResult = data.searchThoughts
-            thoughts = data.searchThoughts.thoughts
-            selectedSearchClusterLabel = data.searchThoughts.clusters.first?.label
+            telescopeResult = data.telescope
+            searchResult = SearchThoughtsResult(
+                thoughts: data.telescope.seedThoughts,
+                clusters: data.telescope.clusters
+            )
+            thoughts = mergeThoughts(data.telescope.seedThoughts, into: thoughts)
+            graph = data.telescope.graph
+            selectedSearchClusterLabel = data.telescope.clusters.first?.label
             if let first = filteredSearchThoughts.first {
                 selectedThought = first
                 selectedSection = .telescope
             } else {
                 selectedThought = nil
+            }
+            if let firstConcept = data.telescope.seedConcepts.first {
+                selectedConcept = firstConcept
+                await loadConcept(id: firstConcept.id)
             }
         } catch {
             errorMessage = "Search failed. Make sure the API is running."
@@ -252,7 +262,7 @@ final class AppModel: ObservableObject {
         if let filteredFirst = filteredSearchThoughts.first {
             selectedThought = filteredFirst
         } else {
-            selectedThought = searchResult.thoughts.first
+            selectedThought = telescopeResult.seedThoughts.first ?? searchResult.thoughts.first
         }
     }
 
@@ -385,48 +395,61 @@ final class AppModel: ObservableObject {
 
     var filteredSearchThoughts: [Thought] {
         guard let selectedSearchClusterLabel,
-              let cluster = searchResult.clusters.first(where: { $0.label == selectedSearchClusterLabel })
+              let cluster = telescopeResult.clusters.first(where: { $0.label == selectedSearchClusterLabel }) ?? searchResult.clusters.first(where: { $0.label == selectedSearchClusterLabel })
         else {
+            if !telescopeResult.seedThoughts.isEmpty {
+                return telescopeResult.seedThoughts
+            }
             return searchResult.thoughts
         }
 
         let clusterThoughtIDs = Set(cluster.thoughtIds)
-        let filtered = searchResult.thoughts.filter { clusterThoughtIDs.contains($0.id) }
-        return filtered.isEmpty ? searchResult.thoughts : filtered
+        let telescopeFiltered = telescopeResult.seedThoughts.filter { clusterThoughtIDs.contains($0.id) }
+        if !telescopeFiltered.isEmpty {
+            return telescopeFiltered
+        }
+        let fallbackFiltered = searchResult.thoughts.filter { clusterThoughtIDs.contains($0.id) }
+        if !fallbackFiltered.isEmpty {
+            return fallbackFiltered
+        }
+        return telescopeResult.seedThoughts.isEmpty ? searchResult.thoughts : telescopeResult.seedThoughts
     }
 
     var telescopeNarrative: String {
-        let trimmed = telescopeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return "Search across your idea graph to surface concept clusters, related thoughts, and promising next jumps."
+        if !telescopeResult.narrative.isEmpty, telescopeResult.query == telescopeQuery.trimmingCharacters(in: .whitespacesAndNewlines) {
+            return telescopeResult.narrative
         }
-
-        let thoughtCount = searchResult.thoughts.count
-        let clusterCount = searchResult.clusters.count
-        if thoughtCount == 0 {
-            return "No strong matches yet for “\(trimmed)”. Try narrowing the claim, naming a concept directly, or combining two tensions."
-        }
-
-        if let selectedSearchClusterLabel {
-            return "For “\(trimmed)”, Allude found \(thoughtCount) matching thoughts across \(clusterCount) cluster\(clusterCount == 1 ? "" : "s"). You’re currently focused on \(selectedSearchClusterLabel.lowercased())."
-        }
-
-        return "For “\(trimmed)”, Allude found \(thoughtCount) matching thoughts across \(clusterCount) cluster\(clusterCount == 1 ? "" : "s")."
+        return TelescopeResult.empty.narrative
     }
 
-    var telescopeSuggestedQueries: [String] {
+    var telescopeSuggestedJumps: [TelescopeJump] {
+        if !telescopeResult.suggestedJumps.isEmpty {
+            return telescopeResult.suggestedJumps
+        }
         let query = telescopeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !query.isEmpty {
+        if query.isEmpty {
             return [
-                "contradictions in \(query)",
-                "examples of \(query)",
-                "adjacent ideas to \(query)"
+                TelescopeJump(label: "Bridge philosophy and startups", query: "connections between stoicism and startup culture", reason: "Explore a concrete example of cross-domain idea search.", thoughtIds: []),
+                TelescopeJump(label: "Boredom and creativity", query: "ideas related to boredom and creativity", reason: "Follow a familiar conceptual tension.", thoughtIds: []),
+                TelescopeJump(label: "Disagreement on stoicism", query: "thinkers who disagree with stoicism", reason: "See how contradiction flows through the graph.", thoughtIds: [])
             ]
         }
         return [
-            "connections between stoicism and startup culture",
-            "ideas related to boredom and creativity",
-            "thinkers who disagree with stoicism"
+            TelescopeJump(label: "Find contradictions", query: "contradictions in \(query)", reason: "Surface objections and edge cases.", thoughtIds: []),
+            TelescopeJump(label: "Find examples", query: "examples of \(query)", reason: "Turn the cluster into concrete cases.", thoughtIds: []),
+            TelescopeJump(label: "Explore adjacency", query: "adjacent ideas to \(query)", reason: "Branch into nearby concepts.", thoughtIds: [])
         ]
+    }
+
+    var telescopeClusters: [SearchCluster] {
+        telescopeResult.clusters.isEmpty ? searchResult.clusters : telescopeResult.clusters
+    }
+
+    var telescopeRelatedCurrents: [IdeaCurrent] {
+        telescopeResult.relatedCurrents
+    }
+
+    var telescopeGraph: GraphNeighborhood? {
+        telescopeResult.graph ?? graph
     }
 }
