@@ -354,10 +354,14 @@ func (repository *PostgresRepository) CreateThought(authorID, content string) (*
 			ProcessingStatus: string(ProcessingPending),
 			ProcessingNotes:  []string{"Queued for enrichment"},
 		}
-		if _, err := tx.NewInsert().Model(thought).Exec(ctx); err != nil {
+		if _, err := tx.NewInsert().Model(thought).
+			Column("id", "author_id", "status", "visibility", "current_version_id", "processing_status", "processing_notes").
+			Exec(ctx); err != nil {
 			return err
 		}
-		if _, err := tx.NewInsert().Model(version).Exec(ctx); err != nil {
+		if _, err := tx.NewInsert().Model(version).
+			Column("id", "thought_id", "version_no", "content", "language", "token_count", "processing_status", "processing_notes").
+			Exec(ctx); err != nil {
 			return err
 		}
 		return nil
@@ -386,7 +390,9 @@ func (repository *PostgresRepository) UpdateThought(thoughtID, content string) (
 			ProcessingStatus: string(ProcessingPending),
 			ProcessingNotes:  []string{"Queued for enrichment"},
 		}
-		if _, err := tx.NewInsert().Model(version).Exec(ctx); err != nil {
+		if _, err := tx.NewInsert().Model(version).
+			Column("id", "thought_id", "version_no", "content", "language", "token_count", "processing_status", "processing_notes").
+			Exec(ctx); err != nil {
 			return err
 		}
 		_, err := tx.NewUpdate().
@@ -750,7 +756,9 @@ func (repository *PostgresRepository) ReplaceThoughtLinks(thoughtID string, link
 func (repository *PostgresRepository) CreateCollection(curatorID, title, description string) (*Collection, error) {
 	ctx := context.Background()
 	row := &collectionRow{ID: newUUID(), CuratorID: curatorID, Title: title, Description: description, Visibility: "public"}
-	if _, err := repository.db.NewInsert().Model(row).Exec(ctx); err != nil {
+	if _, err := repository.db.NewInsert().Model(row).
+		Column("id", "curator_id", "title", "description", "visibility").
+		Exec(ctx); err != nil {
 		return nil, err
 	}
 	return repository.GetCollection(row.ID)
@@ -823,7 +831,9 @@ func (repository *PostgresRepository) RecordEngagement(event *EngagementEvent) (
 		ActionType: event.ActionType,
 		DwellMS:    event.DwellMS,
 	}
-	if _, err := repository.db.NewInsert().Model(row).Exec(ctx); err != nil {
+	if _, err := repository.db.NewInsert().Model(row).
+		Column("id", "user_id", "entity_type", "entity_id", "action_type", "dwell_ms").
+		Exec(ctx); err != nil {
 		return nil, err
 	}
 	return &EngagementEvent{
@@ -856,7 +866,9 @@ func (repository *PostgresRepository) EnqueueJob(job *Job) (*Job, error) {
 		AttemptCount: 0,
 		MaxAttempts:  job.MaxAttempts,
 	}
-	if _, err := repository.db.NewInsert().Model(row).Exec(ctx); err != nil {
+	if _, err := repository.db.NewInsert().Model(row).
+		Column("id", "type", "entity_type", "entity_id", "status", "payload", "attempt_count", "max_attempts").
+		Exec(ctx); err != nil {
 		return nil, err
 	}
 	job.Status = JobPending
@@ -1020,7 +1032,10 @@ func (repository *PostgresRepository) upsertConceptTx(ctx context.Context, tx bu
 		CanonicalName: conceptName,
 		Slug:          semantics.Slugify(conceptName),
 	}
-	if _, err := tx.NewInsert().Model(concept).Ignore().Exec(ctx); err != nil {
+	if _, err := tx.NewInsert().Model(concept).
+		Column("id", "canonical_name", "slug", "description", "concept_type").
+		Ignore().
+		Exec(ctx); err != nil {
 		return "", err
 	}
 	alias := &conceptAliasRow{
@@ -1029,7 +1044,10 @@ func (repository *PostgresRepository) upsertConceptTx(ctx context.Context, tx bu
 		Alias:           conceptName,
 		NormalizedAlias: normalized,
 	}
-	if _, err := tx.NewInsert().Model(alias).Ignore().Exec(ctx); err != nil {
+	if _, err := tx.NewInsert().Model(alias).
+		Column("id", "concept_id", "alias", "normalized_alias").
+		Ignore().
+		Exec(ctx); err != nil {
 		return "", err
 	}
 	return concept.ID, nil
