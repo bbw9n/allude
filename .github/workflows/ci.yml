@@ -25,9 +25,9 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-          --command "postgres -c log_statement=all -c log_min_duration_statement=0"
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/allude?sslmode=disable
+      PGPASSWORD: postgres
     defaults:
       run:
         working-directory: services/api
@@ -40,6 +40,12 @@ jobs:
         with:
           go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.mod
+
+      - name: Enable Postgres SQL logging
+        run: |
+          psql -h 127.0.0.1 -U postgres -d allude -c "ALTER SYSTEM SET log_statement = 'all';"
+          psql -h 127.0.0.1 -U postgres -d allude -c "ALTER SYSTEM SET log_min_duration_statement = 0;"
+          psql -h 127.0.0.1 -U postgres -d allude -c "SELECT pg_reload_conf();"
 
       - name: Verify backend builds
         run: go build ./...
