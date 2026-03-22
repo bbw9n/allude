@@ -81,6 +81,61 @@ func TestGraphQLMutationsCoverPrimaryWriteSurface(t *testing.T) {
 	assertGraphQLHasData(t, executeGraphQL(t, server, "mutation RecordEngagement($entityType: String!, $entityId: ID!, $actionType: String!, $dwellMs: Int) { recordEngagement(entityType: $entityType, entityId: $entityId, actionType: $actionType, dwellMs: $dwellMs) { id entityType entityId actionType dwellMs } }", map[string]interface{}{"entityType": "thought", "entityId": createdID, "actionType": "open", "dwellMs": 3200}), "recordEngagement")
 }
 
+func TestGraphQLCurrentsExposeMaterializedDiscoveryFields(t *testing.T) {
+	server, service := newTestGraphQLServer(t)
+
+	_, _ = service.CreateThought("Stoicism helps founders build discipline under pressure.")
+	_, _ = service.CreateThought("Boxing makes discipline tangible through repeated practice.")
+	if err := service.DrainJobs(24); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+
+	payload := executeGraphQL(t, server, "query Discovery { currents(limit: 4) { id title summary clusterKey freshnessScore qualityScore thoughts { id } concepts { canonicalName } } }", nil)
+
+	var response graphQLResponse
+	if err := json.Unmarshal(payload, &response); err != nil {
+		t.Fatalf("decode graphql payload: %v", err)
+	}
+
+	rawCurrents, exists := response.Data["currents"]
+	if !exists {
+		t.Fatalf("expected currents in payload %s", string(payload))
+	}
+
+	var currents []struct {
+		ID             string  `json:"id"`
+		Title          string  `json:"title"`
+		Summary        string  `json:"summary"`
+		ClusterKey     string  `json:"clusterKey"`
+		FreshnessScore float64 `json:"freshnessScore"`
+		QualityScore   float64 `json:"qualityScore"`
+		Thoughts       []struct {
+			ID string `json:"id"`
+		} `json:"thoughts"`
+		Concepts []struct {
+			CanonicalName string `json:"canonicalName"`
+		} `json:"concepts"`
+	}
+	if err := json.Unmarshal(rawCurrents, &currents); err != nil {
+		t.Fatalf("decode currents payload: %v", err)
+	}
+	if len(currents) == 0 {
+		t.Fatal("expected at least one current")
+	}
+	if currents[0].Summary == "" {
+		t.Fatal("expected current summary to be populated")
+	}
+	if currents[0].ClusterKey == "" {
+		t.Fatal("expected current cluster key to be populated")
+	}
+	if len(currents[0].Thoughts) == 0 {
+		t.Fatal("expected current thoughts to be populated")
+	}
+	if len(currents[0].Concepts) == 0 {
+		t.Fatal("expected current concepts to be populated")
+	}
+}
+
 func TestGraphQLServerHandlesMethodAndPayloadErrors(t *testing.T) {
 	server, _ := newTestGraphQLServer(t)
 

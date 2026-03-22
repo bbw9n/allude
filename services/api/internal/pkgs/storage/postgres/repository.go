@@ -184,6 +184,26 @@ type engagementEventRow struct {
 	CreatedAt     string `bun:"created_at"`
 }
 
+type ideaCurrentRow struct {
+	bun.BaseModel  `bun:"table:idea_currents"`
+	ID             string  `bun:"id,pk"`
+	Title          string  `bun:"title"`
+	Summary        string  `bun:"summary"`
+	ClusterKey     string  `bun:"cluster_key"`
+	FreshnessScore float64 `bun:"freshness_score"`
+	QualityScore   float64 `bun:"quality_score"`
+	CreatedAt      string  `bun:"created_at"`
+	UpdatedAt      string  `bun:"updated_at"`
+}
+
+type ideaCurrentMembershipRow struct {
+	bun.BaseModel `bun:"table:idea_current_membership"`
+	CurrentID     string  `bun:"current_id,pk"`
+	EntityType    string  `bun:"entity_type,pk"`
+	EntityID      string  `bun:"entity_id,pk"`
+	Weight        float64 `bun:"weight"`
+}
+
 type jobRow struct {
 	bun.BaseModel `bun:"table:jobs"`
 	ID            string          `bun:"id,pk"`
@@ -854,6 +874,84 @@ func (repository *PostgresRepository) ListCollections() ([]*Collection, error) {
 	return collections, nil
 }
 
+func (repository *PostgresRepository) ListIdeaCurrents(limit int) ([]*models.IdeaCurrent, error) {
+	ctx := context.Background()
+	rows := []*ideaCurrentRow{}
+	if err := repository.db.NewSelect().
+		Model(&rows).
+		OrderExpr("updated_at DESC").
+		OrderExpr("quality_score DESC").
+		Limit(limit).
+		Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []*models.IdeaCurrent{}, nil
+		}
+		return nil, err
+	}
+	currents := make([]*models.IdeaCurrent, 0, len(rows))
+	for _, row := range rows {
+		current, err := repository.getIdeaCurrent(row.ID)
+		if err == nil && current != nil {
+			currents = append(currents, current)
+		}
+	}
+	return currents, nil
+}
+
+func (repository *PostgresRepository) ReplaceIdeaCurrents(currents []*models.IdeaCurrent) error {
+	ctx := context.Background()
+	return repository.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().Model((*ideaCurrentMembershipRow)(nil)).Where("1 = 1").Exec(ctx); err != nil {
+			return err
+		}
+		if _, err := tx.NewDelete().Model((*ideaCurrentRow)(nil)).Where("1 = 1").Exec(ctx); err != nil {
+			return err
+		}
+		for _, current := range currents {
+			row := &ideaCurrentRow{
+				ID:             current.ID,
+				Title:          current.Title,
+				Summary:        current.Summary,
+				ClusterKey:     current.ClusterKey,
+				FreshnessScore: current.FreshnessScore,
+				QualityScore:   current.QualityScore,
+			}
+			if _, err := tx.NewInsert().Model(row).
+				Column("id", "title", "summary", "cluster_key", "freshness_score", "quality_score").
+				Exec(ctx); err != nil {
+				return err
+			}
+			for _, concept := range current.Concepts {
+				membership := &ideaCurrentMembershipRow{
+					CurrentID:  current.ID,
+					EntityType: "concept",
+					EntityID:   concept.ID,
+					Weight:     current.QualityScore,
+				}
+				if _, err := tx.NewInsert().Model(membership).
+					Column("current_id", "entity_type", "entity_id", "weight").
+					Exec(ctx); err != nil {
+					return err
+				}
+			}
+			for index, thought := range current.Thoughts {
+				membership := &ideaCurrentMembershipRow{
+					CurrentID:  current.ID,
+					EntityType: "thought",
+					EntityID:   thought.ID,
+					Weight:     float64(len(current.Thoughts) - index),
+				}
+				if _, err := tx.NewInsert().Model(membership).
+					Column("current_id", "entity_type", "entity_id", "weight").
+					Exec(ctx); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
 func (repository *PostgresRepository) RecordEngagement(event *EngagementEvent) (*EngagementEvent, error) {
 	ctx := context.Background()
 	if event.ID == "" {
@@ -1051,6 +1149,49 @@ func (repository *PostgresRepository) collectionsForThought(thoughtID string) ([
 		collections = append(collections, collectionFromRow(row))
 	}
 	return collections, nil
+}
+
+func (repository *PostgresRepository) getIdeaCurrent(currentID string) (*models.IdeaCurrent, error) {
+	ctx := context.Background()
+	row := new(ideaCurrentRow)
+	if err := repository.db.NewSelect().Model(row).Where("id = ?", currentID).Scan(ctx); err != nil {
+		return nil, err
+	}
+	members := []*ideaCurrentMembershipRow{}
+	if err := repository.db.NewSelect().
+		Model(&members).
+		Where("current_id = ?", currentID).
+		OrderExpr("entity_type ASC").
+		OrderExpr("weight DESC").
+		Scan(ctx); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	current := &models.IdeaCurrent{
+		ID:             row.ID,
+		Title:          row.Title,
+		Summary:        row.Summary,
+		ClusterKey:     row.ClusterKey,
+		FreshnessScore: row.FreshnessScore,
+		QualityScore:   row.QualityScore,
+		CreatedAt:      row.CreatedAt,
+		UpdatedAt:      row.UpdatedAt,
+	}
+	for _, member := range members {
+		switch member.EntityType {
+		case "concept":
+			concept, err := repository.GetConceptByID(member.EntityID)
+			if err == nil && concept != nil {
+				current.Concepts = append(current.Concepts, concept)
+			}
+		case "thought":
+			thought, err := repository.getThought(member.EntityID, false)
+			if err == nil && thought != nil {
+				current.Thoughts = append(current.Thoughts, thought)
+			}
+		}
+	}
+	return current, nil
 }
 
 func (repository *PostgresRepository) upsertConceptTx(ctx context.Context, tx bun.Tx, conceptName string) (string, error) {

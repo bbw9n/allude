@@ -26,6 +26,8 @@ type Repository interface {
 	AddThoughtToCollection(collectionID, thoughtID string) (*models.Collection, error)
 	GetCollection(id string) (*models.Collection, error)
 	ListCollections() ([]*models.Collection, error)
+	ListIdeaCurrents(limit int) ([]*models.IdeaCurrent, error)
+	ReplaceIdeaCurrents(currents []*models.IdeaCurrent) error
 	RecordEngagement(event *models.EngagementEvent) (*models.EngagementEvent, error)
 	EnqueueJob(job *models.Job) (*models.Job, error)
 	LeasePendingJob(workerID string) (*models.Job, error)

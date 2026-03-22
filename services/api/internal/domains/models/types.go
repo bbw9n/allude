@@ -35,6 +35,7 @@ const (
 	JobExtractConcepts       JobType = "extract_concepts"
 	JobLinkThought           JobType = "link_thought"
 	JobRefreshConceptSummary JobType = "refresh_concept_summary"
+	JobRefreshCurrents       JobType = "refresh_currents"
 )
 
 type User struct {

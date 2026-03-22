@@ -49,11 +49,17 @@ func (service *Service) MyThoughts(limit int) ([]*models.Thought, error) {
 }
 
 func (service *Service) Currents(limit int) ([]*models.IdeaCurrent, error) {
+	currents, err := service.repository.ListIdeaCurrents(limit)
+	if err == nil && len(currents) > 0 {
+		return currents, nil
+	}
 	thoughts, err := service.repository.ListRecentThoughts(max(limit*4, 24))
 	if err != nil {
 		return nil, err
 	}
-	return buildIdeaCurrents(thoughts, limit), nil
+	currents = buildIdeaCurrents(thoughts, limit)
+	_ = service.repository.ReplaceIdeaCurrents(currents)
+	return currents, nil
 }
 
 func (service *Service) Home(limit int) (*models.HomePayload, error) {
@@ -378,6 +384,16 @@ func (service *Service) enrichThoughtVersion(versionID, thoughtID string) error 
 		return nil
 	}
 	_ = service.applyThoughtInterestDelta(latestThought.AuthorID, latestThought, 1.2, "authored")
+	_, _ = service.repository.EnqueueJob(&models.Job{
+		Type:        models.JobRefreshCurrents,
+		EntityType:  "system",
+		EntityID:    "currents",
+		MaxAttempts: 3,
+		Payload: map[string]string{
+			"scope": "all",
+			"limit": "6",
+		},
+	})
 	for _, concept := range latestThought.Concepts {
 		_, _ = service.repository.EnqueueJob(&models.Job{
 			Type:        models.JobRefreshConceptSummary,
@@ -426,6 +442,14 @@ func (service *Service) linkThought(thoughtID string) error {
 
 func (service *Service) refreshConceptSummary(_ string) error {
 	return nil
+}
+
+func (service *Service) refreshMaterializedCurrents(limit int) error {
+	thoughts, err := service.repository.ListRecentThoughts(max(limit*4, 24))
+	if err != nil {
+		return err
+	}
+	return service.repository.ReplaceIdeaCurrents(buildIdeaCurrents(thoughts, limit))
 }
 
 func conceptsFromNames(names []string) []*models.Concept {

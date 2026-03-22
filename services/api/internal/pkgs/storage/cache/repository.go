@@ -237,6 +237,26 @@ func (repository *CachedRepository) ListCollections() ([]*models.Collection, err
 	return collections, err
 }
 
+func (repository *CachedRepository) ListIdeaCurrents(limit int) ([]*models.IdeaCurrent, error) {
+	key := fmt.Sprintf("idea-currents:%d", limit)
+	if value, ok := repository.get(key); ok {
+		return value.([]*models.IdeaCurrent), nil
+	}
+	currents, err := repository.next.ListIdeaCurrents(limit)
+	if err == nil && currents != nil {
+		repository.set(key, currents)
+	}
+	return currents, err
+}
+
+func (repository *CachedRepository) ReplaceIdeaCurrents(currents []*models.IdeaCurrent) error {
+	err := repository.next.ReplaceIdeaCurrents(currents)
+	if err == nil {
+		repository.invalidateAll()
+	}
+	return err
+}
+
 func (repository *CachedRepository) RecordEngagement(event *models.EngagementEvent) (*models.EngagementEvent, error) {
 	return repository.next.RecordEngagement(event)
 }

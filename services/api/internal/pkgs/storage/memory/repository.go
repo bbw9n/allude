@@ -75,6 +75,7 @@ type InMemoryRepository struct {
 	collections       map[string]*Collection
 	collectionItems   map[string][]*CollectionItem
 	engagementEvents  map[string]*EngagementEvent
+	ideaCurrents      map[string]*models.IdeaCurrent
 	userInterests     map[string]map[string]*UserInterest
 	jobs              map[string]*Job
 	jobOrder          []string
@@ -104,6 +105,7 @@ func NewInMemoryRepository() *InMemoryRepository {
 		collections:       map[string]*Collection{},
 		collectionItems:   map[string][]*CollectionItem{},
 		engagementEvents:  map[string]*EngagementEvent{},
+		ideaCurrents:      map[string]*models.IdeaCurrent{},
 		userInterests:     map[string]map[string]*UserInterest{},
 		jobs:              map[string]*Job{},
 		jobOrder:          []string{},
@@ -636,6 +638,35 @@ func (repository *InMemoryRepository) ListCollections() ([]*Collection, error) {
 	return collections, nil
 }
 
+func (repository *InMemoryRepository) ListIdeaCurrents(limit int) ([]*models.IdeaCurrent, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	currents := make([]*models.IdeaCurrent, 0, len(repository.ideaCurrents))
+	for _, current := range repository.ideaCurrents {
+		currents = append(currents, cloneIdeaCurrent(current))
+	}
+	sort.Slice(currents, func(i, j int) bool {
+		if currents[i].UpdatedAt == currents[j].UpdatedAt {
+			return currents[i].QualityScore > currents[j].QualityScore
+		}
+		return currents[i].UpdatedAt > currents[j].UpdatedAt
+	})
+	if len(currents) > limit {
+		currents = currents[:limit]
+	}
+	return currents, nil
+}
+
+func (repository *InMemoryRepository) ReplaceIdeaCurrents(currents []*models.IdeaCurrent) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	repository.ideaCurrents = map[string]*models.IdeaCurrent{}
+	for _, current := range currents {
+		repository.ideaCurrents[current.ID] = cloneIdeaCurrent(current)
+	}
+	return nil
+}
+
 func (repository *InMemoryRepository) RecordEngagement(event *EngagementEvent) (*EngagementEvent, error) {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
@@ -1077,6 +1108,30 @@ func cloneCollectionBase(collection *Collection) *Collection {
 	}
 	clone := *collection
 	clone.Items = nil
+	return &clone
+}
+
+func cloneIdeaCurrent(current *models.IdeaCurrent) *models.IdeaCurrent {
+	if current == nil {
+		return nil
+	}
+	clone := *current
+	clone.Concepts = make([]*Concept, 0, len(current.Concepts))
+	for _, concept := range current.Concepts {
+		clone.Concepts = append(clone.Concepts, cloneConceptBase(concept))
+	}
+	clone.Thoughts = make([]*Thought, 0, len(current.Thoughts))
+	for _, thought := range current.Thoughts {
+		if thought == nil {
+			continue
+		}
+		copied := *thought
+		copied.Concepts = nil
+		copied.RelatedThoughts = nil
+		copied.Collections = nil
+		copied.Links = nil
+		clone.Thoughts = append(clone.Thoughts, &copied)
+	}
 	return &clone
 }
 

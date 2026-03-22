@@ -214,6 +214,70 @@ func TestCurrentsAndHomeReturnDiscoveryPayloads(t *testing.T) {
 	}
 }
 
+func TestThoughtEnrichmentQueuesAndBuildsMaterializedCurrents(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+	_, _ = service.CreateThought("Stoicism gives founders a discipline practice during uncertainty.")
+	_, _ = service.CreateThought("Boxing turns discipline into a repeated ritual with discomfort.")
+	if err := service.DrainJobs(24); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+
+	currents, err := service.Currents(4)
+	if err != nil {
+		t.Fatalf("currents: %v", err)
+	}
+	if len(currents) == 0 {
+		t.Fatal("expected materialized currents after enrichment")
+	}
+
+	foundRefresh := false
+	for _, job := range service.Jobs() {
+		if job.Type == models.JobRefreshCurrents && job.Status == models.JobCompleted {
+			foundRefresh = true
+			break
+		}
+	}
+	if !foundRefresh {
+		t.Fatal("expected refresh currents job to complete during enrichment")
+	}
+}
+
+func TestCreateThoughtQueuesRefreshCurrentsDuringEnrichment(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+	_, err := service.CreateThought("Boredom can become a precondition for creativity.")
+	if err != nil {
+		t.Fatalf("create thought: %v", err)
+	}
+
+	foundEmbed := false
+	for _, job := range service.Jobs() {
+		if job.Type == models.JobEmbedThoughtVersion && job.Status == models.JobPending {
+			foundEmbed = true
+			break
+		}
+	}
+	if !foundEmbed {
+		t.Fatal("expected embed thought version job to be queued immediately")
+	}
+
+	if err := service.DrainJobs(8); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+
+	foundRefresh := false
+	for _, job := range service.Jobs() {
+		if job.Type == models.JobRefreshCurrents {
+			foundRefresh = true
+			if job.Status != models.JobCompleted {
+				t.Fatalf("expected refresh currents job to complete, got %s", job.Status)
+			}
+		}
+	}
+	if !foundRefresh {
+		t.Fatal("expected refresh currents job to be enqueued during enrichment")
+	}
+}
+
 func TestUserInterestsAndRankedHomeReflectBehavior(t *testing.T) {
 	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
 	stoic, _ := service.CreateThought("Stoicism helps founders keep discipline under pressure.")

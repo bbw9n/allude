@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/bbw9n/allude/services/api/internal/domains/models"
@@ -113,6 +114,14 @@ func (runner *JobRunner) handle(job *models.Job) error {
 		return runner.service.linkThought(job.Payload["thoughtId"])
 	case models.JobRefreshConceptSummary:
 		return runner.service.refreshConceptSummary(job.Payload["conceptId"])
+	case models.JobRefreshCurrents:
+		limit := 6
+		if rawLimit := job.Payload["limit"]; rawLimit != "" {
+			if parsedLimit, err := strconv.Atoi(rawLimit); err == nil && parsedLimit > 0 {
+				limit = parsedLimit
+			}
+		}
+		return runner.service.refreshMaterializedCurrents(limit)
 	default:
 		return fmt.Errorf("unsupported job type %s", job.Type)
 	}

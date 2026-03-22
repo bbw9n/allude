@@ -130,6 +130,25 @@ CREATE TABLE engagement_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE idea_currents (
+  id UUID PRIMARY KEY,
+  title TEXT NOT NULL,
+  summary TEXT,
+  cluster_key TEXT,
+  freshness_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+  quality_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE idea_current_membership (
+  current_id UUID NOT NULL REFERENCES idea_currents(id) ON DELETE CASCADE,
+  entity_type TEXT NOT NULL,
+  entity_id UUID NOT NULL,
+  weight DOUBLE PRECISION NOT NULL DEFAULT 0,
+  PRIMARY KEY (current_id, entity_type, entity_id)
+);
+
 CREATE TABLE embedding_jobs (
   id UUID PRIMARY KEY,
   entity_type TEXT NOT NULL,
@@ -172,4 +191,5 @@ CREATE INDEX thought_versions_thought_id_idx ON thought_versions (thought_id);
 CREATE INDEX thought_concepts_concept_idx ON thought_concepts (concept_id);
 CREATE INDEX collection_items_thought_idx ON collection_items (thought_id);
 CREATE INDEX engagement_events_entity_idx ON engagement_events (entity_type, entity_id);
+CREATE INDEX idea_current_membership_entity_idx ON idea_current_membership (entity_type, entity_id);
 CREATE INDEX jobs_status_visible_idx ON jobs (status, visible_at);
