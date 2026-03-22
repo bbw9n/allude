@@ -402,11 +402,14 @@ func (repository *PostgresRepository) UpdateThought(thoughtID, content string) (
 			Exec(ctx); err != nil {
 			return err
 		}
+		updateRow := &thoughtRow{
+			CurrentVersionID: versionID,
+			ProcessingStatus: string(ProcessingPending),
+			ProcessingNotes:  []string{"Queued for enrichment"},
+		}
 		_, err := tx.NewUpdate().
-			Model((*thoughtRow)(nil)).
-			Set("current_version_id = ?", versionID).
-			Set("processing_status = ?", string(ProcessingPending)).
-			Set("processing_notes = ?", []string{"Queued for enrichment"}).
+			Model(updateRow).
+			Column("current_version_id", "processing_status", "processing_notes").
 			Set("updated_at = NOW()").
 			Where("id = ?", thoughtID).
 			Exec(ctx)
@@ -466,11 +469,14 @@ func (repository *PostgresRepository) ListThoughtVersions(thoughtID string) ([]*
 func (repository *PostgresRepository) SaveThoughtVersionEnrichment(versionID string, embedding []float64, conceptNames []string, status ProcessingStatus, notes []string) (*ThoughtVersion, error) {
 	ctx := context.Background()
 	err := repository.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		versionUpdate := &thoughtVersionRow{
+			ProcessingStatus: string(status),
+			ProcessingNotes:  notes,
+		}
 		if _, err := tx.NewUpdate().
-			Model((*thoughtVersionRow)(nil)).
+			Model(versionUpdate).
 			Set("embedding = ?::vector", vectorLiteral(embedding)).
-			Set("processing_status = ?", string(status)).
-			Set("processing_notes = ?", notes).
+			Column("processing_status", "processing_notes").
 			Where("id = ?", versionID).
 			Exec(ctx); err != nil {
 			return err
@@ -498,10 +504,13 @@ func (repository *PostgresRepository) SaveThoughtVersionEnrichment(versionID str
 				return err
 			}
 		}
+		thoughtUpdate := &thoughtRow{
+			ProcessingStatus: string(status),
+			ProcessingNotes:  notes,
+		}
 		if _, err := tx.NewUpdate().
-			Model((*thoughtRow)(nil)).
-			Set("processing_status = ?", string(status)).
-			Set("processing_notes = ?", notes).
+			Model(thoughtUpdate).
+			Column("processing_status", "processing_notes").
 			Set("updated_at = NOW()").
 			Where("current_version_id = ?", versionID).
 			Exec(ctx); err != nil {
