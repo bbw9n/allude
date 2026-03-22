@@ -214,17 +214,10 @@ func NewPostgresRepository(databaseURL string) (*PostgresRepository, error) {
 }
 
 func (repository *PostgresRepository) GetViewer() *User {
-	ctx := context.Background()
-	row := new(userRow)
-	err := repository.db.NewSelect().
-		Model(row).
-		Where("username = ?", "allude-dev").
-		Limit(1).
-		Scan(ctx)
-	if err != nil {
+	user := repository.getViewerBasic()
+	if user == nil {
 		return &User{ID: ViewerID, Username: "allude-dev", DisplayName: "Allude Dev"}
 	}
-	user := userFromRow(row)
 	interests, err := repository.ListUserInterests(user.ID, 6)
 	if err == nil {
 		user.Interests = user.Interests[:0]
@@ -235,6 +228,20 @@ func (repository *PostgresRepository) GetViewer() *User {
 		}
 	}
 	return user
+}
+
+func (repository *PostgresRepository) getViewerBasic() *User {
+	ctx := context.Background()
+	row := new(userRow)
+	err := repository.db.NewSelect().
+		Model(row).
+		Where("username = ?", "allude-dev").
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		return &User{ID: ViewerID, Username: "allude-dev", DisplayName: "Allude Dev"}
+	}
+	return userFromRow(row)
 }
 
 func (repository *PostgresRepository) ListUserInterests(userID string, limit int) ([]*UserInterest, error) {
@@ -435,7 +442,7 @@ func (repository *PostgresRepository) getThought(thoughtID string, includeRelate
 	if err != nil {
 		return nil, err
 	}
-	thought := thoughtFromRow(row, repository.GetViewer())
+	thought := thoughtFromRow(row, repository.getViewerBasic())
 	thought.Versions = versions
 	for _, version := range versions {
 		if version.ID == row.CurrentVersionID {
@@ -543,11 +550,15 @@ func (repository *PostgresRepository) SaveThoughtVersionEnrichment(versionID str
 func (repository *PostgresRepository) SearchThoughts(query string, embedding []float64, limit int) (*SearchThoughtsResult, error) {
 	ctx := context.Background()
 	ids := []string{}
+	candidateLimit := limit * 8
+	if candidateLimit < 40 {
+		candidateLimit = 40
+	}
 	if err := repository.db.NewSelect().
 		Model((*thoughtRow)(nil)).
 		Column("id").
 		Order("updated_at DESC").
-		Limit(200).
+		Limit(candidateLimit).
 		Scan(ctx, &ids); err != nil {
 		return nil, err
 	}

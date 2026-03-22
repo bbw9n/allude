@@ -3,6 +3,7 @@ package actions
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/bbw9n/allude/services/api/internal/domains/models"
@@ -55,12 +56,21 @@ func (runner *JobRunner) ProcessNext(_ context.Context) (bool, error) {
 	if err != nil || job == nil {
 		return false, err
 	}
+	start := time.Now()
+	log.Printf("[job-runner] start job=%s type=%s entity=%s/%s attempts=%d", job.ID, job.Type, job.EntityType, job.EntityID, job.AttemptCount)
 
 	if err := runner.handle(job); err != nil {
 		_ = runner.repository.FailJob(job.ID, err.Error())
+		log.Printf("[job-runner] fail job=%s type=%s duration=%s error=%v", job.ID, job.Type, time.Since(start), err)
 		return true, err
 	}
-	return true, runner.repository.CompleteJob(job.ID)
+	err = runner.repository.CompleteJob(job.ID)
+	if err != nil {
+		log.Printf("[job-runner] complete-error job=%s type=%s duration=%s error=%v", job.ID, job.Type, time.Since(start), err)
+		return true, err
+	}
+	log.Printf("[job-runner] done job=%s type=%s duration=%s", job.ID, job.Type, time.Since(start))
+	return true, nil
 }
 
 func (runner *JobRunner) handle(job *models.Job) error {
