@@ -186,19 +186,19 @@ type engagementEventRow struct {
 
 type jobRow struct {
 	bun.BaseModel `bun:"table:jobs"`
-	ID            string `bun:"id,pk"`
-	Type          string `bun:"type"`
-	EntityType    string `bun:"entity_type"`
-	EntityID      string `bun:"entity_id"`
-	Status        string `bun:"status"`
-	Payload       []byte `bun:"payload"`
-	AttemptCount  int    `bun:"attempt_count"`
-	MaxAttempts   int    `bun:"max_attempts"`
-	LastError     string `bun:"last_error"`
-	LeaseOwner    string `bun:"lease_owner"`
-	VisibleAt     string `bun:"visible_at"`
-	CreatedAt     string `bun:"created_at"`
-	UpdatedAt     string `bun:"updated_at"`
+	ID            string          `bun:"id,pk"`
+	Type          string          `bun:"type"`
+	EntityType    string          `bun:"entity_type"`
+	EntityID      string          `bun:"entity_id"`
+	Status        string          `bun:"status"`
+	Payload       json.RawMessage `bun:"payload,type:jsonb"`
+	AttemptCount  int             `bun:"attempt_count"`
+	MaxAttempts   int             `bun:"max_attempts"`
+	LastError     string          `bun:"last_error"`
+	LeaseOwner    string          `bun:"lease_owner"`
+	VisibleAt     string          `bun:"visible_at"`
+	CreatedAt     string          `bun:"created_at"`
+	UpdatedAt     string          `bun:"updated_at"`
 }
 
 func NewPostgresRepository(databaseURL string) (*PostgresRepository, error) {
