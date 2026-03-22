@@ -1,13 +1,13 @@
 import Foundation
 
-struct User: Decodable, Hashable {
+struct User: Decodable, Hashable, Sendable {
     let id: String
     let username: String
     let bio: String?
     let interests: [String]
 }
 
-struct ThoughtVersion: Decodable, Hashable, Identifiable {
+struct ThoughtVersion: Decodable, Hashable, Identifiable, Sendable {
     let id: String
     let thoughtId: String
     let version: Int
@@ -15,7 +15,7 @@ struct ThoughtVersion: Decodable, Hashable, Identifiable {
     let createdAt: String
 }
 
-struct Concept: Decodable, Hashable, Identifiable {
+struct Concept: Decodable, Hashable, Identifiable, Sendable {
     let id: String
     let name: String
     let slug: String?
@@ -29,14 +29,14 @@ struct Concept: Decodable, Hashable, Identifiable {
     let contradictionThoughts: [Thought]?
 }
 
-struct ConceptAlias: Decodable, Hashable, Identifiable {
+struct ConceptAlias: Decodable, Hashable, Identifiable, Sendable {
     let id: String
     let conceptId: String
     let alias: String
     let normalizedAlias: String
 }
 
-struct ThoughtLink: Decodable, Hashable, Identifiable {
+struct ThoughtLink: Decodable, Hashable, Identifiable, Sendable {
     let id: String
     let sourceThoughtId: String
     let targetThoughtId: String
@@ -46,7 +46,7 @@ struct ThoughtLink: Decodable, Hashable, Identifiable {
     let createdAt: String
 }
 
-struct Thought: Decodable, Hashable, Identifiable {
+struct Thought: Decodable, Hashable, Identifiable, Sendable {
     let id: String
     let author: User?
     let currentVersion: ThoughtVersion
@@ -61,7 +61,7 @@ struct Thought: Decodable, Hashable, Identifiable {
     let updatedAt: String
 }
 
-struct CollectionItem: Decodable, Hashable, Identifiable {
+struct CollectionItem: Decodable, Hashable, Identifiable, Sendable {
     let collectionId: String
     let thoughtId: String
     let position: Int?
@@ -71,7 +71,7 @@ struct CollectionItem: Decodable, Hashable, Identifiable {
     var id: String { "\(collectionId):\(thoughtId)" }
 }
 
-struct Collection: Decodable, Hashable, Identifiable {
+struct Collection: Decodable, Hashable, Identifiable, Sendable {
     let id: String
     let curatorId: String
     let title: String
@@ -82,18 +82,18 @@ struct Collection: Decodable, Hashable, Identifiable {
     let updatedAt: String
 }
 
-struct SearchCluster: Decodable, Hashable {
+struct SearchCluster: Decodable, Hashable, Sendable {
     let label: String
     let concepts: [Concept]
     let thoughtIds: [String]
 }
 
-struct SearchThoughtsResult: Decodable, Hashable {
+struct SearchThoughtsResult: Decodable, Hashable, Sendable {
     let thoughts: [Thought]
     let clusters: [SearchCluster]
 }
 
-struct DraftSuggestions: Decodable, Hashable {
+struct DraftSuggestions: Decodable, Hashable, Sendable {
     let relatedConcepts: [String]
     let supportingThoughts: [Thought]
     let counterThoughts: [Thought]
@@ -109,7 +109,7 @@ struct DraftSuggestions: Decodable, Hashable {
     )
 }
 
-struct GraphNode: Decodable, Hashable, Identifiable {
+struct GraphNode: Decodable, Hashable, Identifiable, Sendable {
     let thought: Thought
     let x: Double
     let y: Double
@@ -118,19 +118,19 @@ struct GraphNode: Decodable, Hashable, Identifiable {
     var id: String { thought.id }
 }
 
-struct GraphEdge: Decodable, Hashable, Identifiable {
+struct GraphEdge: Decodable, Hashable, Identifiable, Sendable {
     let link: ThoughtLink
 
     var id: String { link.id }
 }
 
-struct GraphNeighborhood: Decodable, Hashable {
+struct GraphNeighborhood: Decodable, Hashable, Sendable {
     let center: GraphNode
     let nodes: [GraphNode]
     let edges: [GraphEdge]
 }
 
-struct ThinkingMapConceptNode: Identifiable, Hashable {
+struct ThinkingMapConceptNode: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let count: Int
@@ -139,19 +139,19 @@ struct ThinkingMapConceptNode: Identifiable, Hashable {
     let thoughtIDs: [String]
 }
 
-struct ThinkingMapEdge: Identifiable, Hashable {
+struct ThinkingMapEdge: Identifiable, Hashable, Sendable {
     let id: String
     let sourceID: String
     let targetID: String
     let weight: Double
 }
 
-struct PersonalThinkingMap: Hashable {
+struct PersonalThinkingMap: Hashable, Sendable {
     let concepts: [ThinkingMapConceptNode]
     let edges: [ThinkingMapEdge]
 }
 
-enum SidebarSection: String, CaseIterable, Identifiable {
+enum SidebarSection: String, CaseIterable, Identifiable, Sendable {
     case composer = "Composer"
     case telescope = "Telescope"
     case constellation = "Constellation"
