@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -34,10 +35,13 @@ func TestPostgresRepositoryReadWritePath(t *testing.T) {
 	step := func(label string, fn func() error) {
 		t.Helper()
 		start := time.Now()
+		fmt.Printf("[postgres-integration] START %s\n", label)
 		t.Logf("starting %s", label)
 		if err := fn(); err != nil {
+			fmt.Printf("[postgres-integration] FAIL %s after %s: %v\n", label, time.Since(start), err)
 			t.Fatalf("%s: %v", label, err)
 		}
+		fmt.Printf("[postgres-integration] DONE %s in %s\n", label, time.Since(start))
 		t.Logf("finished %s in %s", label, time.Since(start))
 	}
 
@@ -53,7 +57,10 @@ func TestPostgresRepositoryReadWritePath(t *testing.T) {
 		return createErr
 	})
 	step("drain jobs", func() error {
-		return service.DrainJobs(24)
+		fmt.Printf("[postgres-integration] queued jobs before drain: %d\n", len(service.Jobs()))
+		err := service.DrainJobs(24)
+		fmt.Printf("[postgres-integration] queued jobs after drain: %d\n", len(service.Jobs()))
+		return err
 	})
 
 	var hydrated *models.Thought
@@ -134,6 +141,8 @@ func TestPostgresRepositoryReadWritePath(t *testing.T) {
 
 func resetDatabase(t *testing.T, databaseURL string) {
 	t.Helper()
+	fmt.Printf("[postgres-integration] reset database start\n")
+	start := time.Now()
 
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -148,6 +157,7 @@ func resetDatabase(t *testing.T, databaseURL string) {
 		"CREATE EXTENSION IF NOT EXISTS vector",
 	}
 	for _, statement := range resetStatements {
+		fmt.Printf("[postgres-integration] exec reset statement: %s\n", statement)
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("exec reset statement %q: %v", statement, err)
 		}
@@ -168,6 +178,7 @@ func resetDatabase(t *testing.T, databaseURL string) {
 			t.Fatalf("exec schema statement %q: %v", statement, err)
 		}
 	}
+	fmt.Printf("[postgres-integration] reset database done in %s\n", time.Since(start))
 }
 
 func splitSQLStatements(schema string) []string {
