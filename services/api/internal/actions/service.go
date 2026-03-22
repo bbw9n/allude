@@ -44,6 +44,18 @@ func (service *Service) ViewerInterests(limit int) ([]*models.UserInterest, erro
 	return service.repository.ListUserInterests(shared.ViewerID, limit)
 }
 
+func (service *Service) ThoughtVersions(thoughtID string) ([]*models.ThoughtVersion, error) {
+	thought, err := service.repository.GetThought(thoughtID)
+	if err != nil {
+		return nil, err
+	}
+	return thought.Versions, nil
+}
+
+func (service *Service) RelatedThoughts(thoughtID string, limit int) ([]*models.Thought, error) {
+	return service.repository.GetRelatedThoughts(thoughtID, limit)
+}
+
 func (service *Service) MyThoughts(limit int) ([]*models.Thought, error) {
 	return service.repository.ListThoughtsByAuthor(shared.ViewerID, limit)
 }

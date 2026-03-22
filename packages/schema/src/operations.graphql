@@ -14,6 +14,22 @@ mutation CreateThought($content: String!) {
   }
 }
 
+mutation EditThought($thoughtId: ID!, $content: String!) {
+  editThought(thoughtId: $thoughtId, content: $content) {
+    id
+    processingStatus
+    currentVersion {
+      id
+      version
+      content
+    }
+    versions {
+      id
+      version
+    }
+  }
+}
+
 mutation UpdateThought($thoughtId: ID!, $content: String!) {
   updateThought(thoughtId: $thoughtId, content: $content) {
     id
@@ -26,7 +42,71 @@ mutation UpdateThought($thoughtId: ID!, $content: String!) {
   }
 }
 
+query Viewer {
+  me {
+    id
+    username
+    interests
+  }
+  viewer {
+    id
+    username
+    interests
+  }
+  viewerInterests(limit: 6) {
+    conceptId
+    affinityScore
+    concept {
+      id
+      canonicalName
+      slug
+    }
+  }
+}
+
+query ThoughtDetail($id: ID!) {
+  thought(id: $id) {
+    id
+    processingStatus
+    currentVersion {
+      id
+      version
+      content
+    }
+    versions {
+      id
+      version
+      content
+    }
+    concepts {
+      id
+      canonicalName
+      slug
+    }
+    relatedThoughts {
+      id
+    }
+  }
+  relatedThoughts(thoughtId: $id, limit: 8) {
+    id
+  }
+  listThoughtVersions(thoughtId: $id) {
+    id
+    version
+    content
+  }
+}
+
 query SearchThoughts($query: String!) {
+  search(query: $query) {
+    thoughts {
+      id
+    }
+    clusters {
+      label
+      thoughtIds
+    }
+  }
   searchThoughts(query: $query) {
     thoughts {
       id
@@ -38,5 +118,93 @@ query SearchThoughts($query: String!) {
       label
       thoughtIds
     }
+  }
+}
+
+query Discovery($query: String!, $thoughtId: ID!, $conceptName: String!, $collectionId: ID!) {
+  myThoughts(limit: 10) {
+    id
+  }
+  currents(limit: 4) {
+    id
+    title
+    summary
+    clusterKey
+  }
+  home(limit: 4) {
+    viewer {
+      id
+    }
+    currents {
+      id
+    }
+    recommendedThoughts {
+      id
+    }
+    recommendedCollections {
+      id
+    }
+  }
+  concept(name: $conceptName) {
+    id
+    canonicalName
+    slug
+    thoughtCount
+  }
+  graph(centerThoughtId: $thoughtId, distance: 2, limit: 12) {
+    center {
+      thought {
+        id
+      }
+    }
+  }
+  collection(id: $collectionId) {
+    id
+    title
+  }
+  collections {
+    id
+    title
+  }
+  draftSuggestions(content: $query, thoughtId: $thoughtId) {
+    relatedConcepts
+    reframes
+  }
+  telescope(query: $query) {
+    query
+    intent
+    narrative
+    relatedCurrents {
+      id
+    }
+  }
+}
+
+mutation CreateCollection($title: String!, $description: String) {
+  createCollection(title: $title, description: $description) {
+    id
+    title
+    description
+  }
+}
+
+mutation AddThoughtToCollection($collectionId: ID!, $thoughtId: ID!) {
+  addThoughtToCollection(collectionId: $collectionId, thoughtId: $thoughtId) {
+    id
+    items {
+      thought {
+        id
+      }
+    }
+  }
+}
+
+mutation RecordEngagement($entityType: String!, $entityId: ID!, $actionType: String!, $dwellMs: Int) {
+  recordEngagement(entityType: $entityType, entityId: $entityId, actionType: $actionType, dwellMs: $dwellMs) {
+    id
+    entityType
+    entityId
+    actionType
+    dwellMs
   }
 }

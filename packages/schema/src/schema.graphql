@@ -16,8 +16,21 @@ enum RelationType {
 type User {
   id: ID!
   username: String!
+  displayName: String
   bio: String
+  avatarUrl: String
   interests: [String!]!
+  createdAt: String
+  updatedAt: String
+}
+
+type UserInterest {
+  userId: ID!
+  conceptId: ID!
+  affinityScore: Float!
+  source: String
+  updatedAt: String
+  concept: Concept
 }
 
 type ThoughtVersion {
@@ -25,15 +38,34 @@ type ThoughtVersion {
   thoughtId: ID!
   version: Int!
   content: String!
+  language: String
+  tokenCount: Int
+  processingStatus: String
+  processingNotes: [String!]
   createdAt: String!
 }
 
 type Concept {
   id: ID!
+  canonicalName: String!
   name: String!
-  createdAt: String!
-  relatedConcepts(limit: Int = 6): [Concept!]!
-  topThoughts(limit: Int = 8): [Thought!]!
+  slug: String!
+  description: String
+  conceptType: String
+  thoughtCount: Int
+  aliases: [ConceptAlias!]
+  relatedConcepts: [Concept!]
+  topThoughts: [Thought!]
+  contradictionThoughts: [Thought!]
+  createdAt: String
+  updatedAt: String
+}
+
+type ConceptAlias {
+  id: ID!
+  conceptId: ID!
+  alias: String!
+  normalizedAlias: String!
 }
 
 type ThoughtLink {
@@ -41,64 +73,160 @@ type ThoughtLink {
   sourceThoughtId: ID!
   targetThoughtId: ID!
   relationType: RelationType!
-  score: Float!
-  origin: String!
-  createdAt: String!
+  weight: Float
+  score: Float
+  source: String
+  origin: String
+  explanation: String
+  createdAt: String
+}
+
+type CollectionItem {
+  collectionId: ID!
+  thoughtId: ID!
+  position: Int
+  addedAt: String
+  thought: Thought
+}
+
+type Collection {
+  id: ID!
+  curatorId: ID!
+  title: String!
+  description: String
+  visibility: String
+  items: [CollectionItem!]
+  createdAt: String
+  updatedAt: String
 }
 
 type Thought {
   id: ID!
-  author: User!
-  currentVersion: ThoughtVersion!
+  author: User
+  status: String
+  visibility: String
+  currentVersion: ThoughtVersion
   versions: [ThoughtVersion!]!
   concepts: [Concept!]!
-  relatedThoughts(limit: Int = 8): [Thought!]!
-  links(limit: Int = 8): [ThoughtLink!]!
-  processingStatus: ProcessingStatus!
-  processingNotes: [String!]!
-  createdAt: String!
-  updatedAt: String!
+  relatedThoughts: [Thought!]
+  links: [ThoughtLink!]
+  collections: [Collection!]
+  processingStatus: ProcessingStatus
+  processingNotes: [String!]
+  createdAt: String
+  updatedAt: String
 }
 
 type GraphNode {
-  thought: Thought!
-  x: Float!
-  y: Float!
-  distance: Int!
+  thought: Thought
+  x: Float
+  y: Float
+  distance: Int
 }
 
 type GraphEdge {
-  link: ThoughtLink!
+  link: ThoughtLink
 }
 
 type GraphNeighborhood {
-  center: GraphNode!
-  nodes: [GraphNode!]!
-  edges: [GraphEdge!]!
+  center: GraphNode
+  nodes: [GraphNode!]
+  edges: [GraphEdge!]
 }
 
 type SearchCluster {
   label: String!
-  concepts: [Concept!]!
-  thoughtIds: [ID!]!
+  concepts: [Concept!]
+  thoughtIds: [ID!]
 }
 
-type SearchThoughtsResult {
-  thoughts: [Thought!]!
-  clusters: [SearchCluster!]!
+type SearchResult {
+  thoughts: [Thought!]
+  clusters: [SearchCluster!]
+}
+
+type DraftSuggestions {
+  relatedConcepts: [String!]
+  supportingThoughts: [Thought!]
+  counterThoughts: [Thought!]
+  reframes: [String!]
+  notes: [String!]
+}
+
+type IdeaCurrent {
+  id: ID!
+  title: String!
+  summary: String
+  clusterKey: String
+  freshnessScore: Float
+  qualityScore: Float
+  concepts: [Concept!]
+  thoughts: [Thought!]
+  createdAt: String
+  updatedAt: String
+}
+
+type TelescopeJump {
+  label: String!
+  query: String!
+  reason: String
+  thoughtIds: [ID!]
+}
+
+type TelescopeResult {
+  query: String!
+  intent: String!
+  seedConcepts: [Concept!]
+  seedThoughts: [Thought!]
+  graph: GraphNeighborhood
+  clusters: [SearchCluster!]
+  narrative: String!
+  suggestedJumps: [TelescopeJump!]
+  relatedCurrents: [IdeaCurrent!]
+}
+
+type HomePayload {
+  viewer: User
+  currents: [IdeaCurrent!]
+  recommendedThoughts: [Thought!]
+  recommendedCollections: [Collection!]
+}
+
+type EngagementEvent {
+  id: ID!
+  userId: ID
+  entityType: String
+  entityId: ID
+  actionType: String
+  dwellMs: Int
+  createdAt: String
 }
 
 type Query {
-  viewer: User!
+  me: User
+  viewer: User
+  myThoughts(limit: Int = 40): [Thought!]
+  viewerInterests(limit: Int = 12): [UserInterest!]
+  currents(limit: Int = 6): [IdeaCurrent!]
+  home(limit: Int = 6): HomePayload
   thought(id: ID!): Thought
-  concept(id: ID, name: String): Concept
-  searchThoughts(query: String!): SearchThoughtsResult!
-  graph(centerThoughtId: ID!, distance: Int = 2, limit: Int = 12): GraphNeighborhood!
-  relatedThoughts(thoughtId: ID!, limit: Int = 8): [Thought!]!
-  listThoughtVersions(thoughtId: ID!): [ThoughtVersion!]!
+  concept(id: ID, slug: String, name: String): Concept
+  search(query: String!): SearchResult
+  searchThoughts(query: String!): SearchResult
+  draftSuggestions(content: String!, thoughtId: ID): DraftSuggestions
+  telescope(query: String!): TelescopeResult
+  graph(thoughtId: ID, centerThoughtId: ID, hopCount: Int = 2, distance: Int = 2, limit: Int = 12): GraphNeighborhood
+  collection(id: ID!): Collection
+  collections: [Collection!]
+  relatedThoughts(thoughtId: ID!, limit: Int = 8): [Thought!]
+  listThoughtVersions(thoughtId: ID!): [ThoughtVersion!]
 }
 
 type Mutation {
   createThought(content: String!): Thought!
+  editThought(thoughtId: ID!, content: String!): Thought!
   updateThought(thoughtId: ID!, content: String!): Thought!
+  createCollection(title: String!, description: String): Collection!
+  addThoughtToCollection(collectionId: ID!, thoughtId: ID!): Collection!
+  recordEngagement(entityType: String!, entityId: ID!, actionType: String!, dwellMs: Int): EngagementEvent!
 }

@@ -81,6 +81,20 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 		},
 	})
 
+	userInterestType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "UserInterest",
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			return graphql.Fields{
+				"userId":        &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+				"conceptId":     &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+				"affinityScore": &graphql.Field{Type: graphql.NewNonNull(graphql.Float)},
+				"source":        &graphql.Field{Type: graphql.String},
+				"updatedAt":     &graphql.Field{Type: graphql.String},
+				"concept":       &graphql.Field{Type: conceptType},
+			}
+		}),
+	})
+
 	thoughtVersionType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "ThoughtVersion",
 		Fields: graphql.Fields{
@@ -358,6 +372,15 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 					return server.service.MyThoughts(optionalInt(p.Args, "limit", 40))
 				},
 			},
+			"viewerInterests": &graphql.Field{
+				Type: graphql.NewList(userInterestType),
+				Args: graphql.FieldConfigArgument{
+					"limit": &graphql.ArgumentConfig{Type: graphql.Int},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.ViewerInterests(optionalInt(p.Args, "limit", 12))
+				},
+			},
 			"currents": &graphql.Field{
 				Type: graphql.NewList(ideaCurrentType),
 				Args: graphql.FieldConfigArgument{
@@ -456,6 +479,25 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 				Args: graphql.FieldConfigArgument{"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)}},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					return server.service.Collection(p.Args["id"].(string))
+				},
+			},
+			"relatedThoughts": &graphql.Field{
+				Type: graphql.NewList(thoughtType),
+				Args: graphql.FieldConfigArgument{
+					"thoughtId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+					"limit":     &graphql.ArgumentConfig{Type: graphql.Int},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.RelatedThoughts(p.Args["thoughtId"].(string), optionalInt(p.Args, "limit", 8))
+				},
+			},
+			"listThoughtVersions": &graphql.Field{
+				Type: graphql.NewList(thoughtVersionType),
+				Args: graphql.FieldConfigArgument{
+					"thoughtId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.ThoughtVersions(p.Args["thoughtId"].(string))
 				},
 			},
 			"collections": &graphql.Field{

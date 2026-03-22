@@ -20,77 +20,93 @@ type graphQLResponse struct {
 	} `json:"errors"`
 }
 
-func TestGraphQLQueriesCoverPrimaryReadSurface(t *testing.T) {
-	server, service := newTestGraphQLServer(t)
-
-	first, _ := service.CreateThought("Stoicism and boxing both train discipline under discomfort.")
-	second, _ := service.CreateThought("Founder psychology borrows discipline rituals from martial arts.")
-	_, _ = service.CreateThought("Creativity often needs boredom and silence.")
-	if err := service.DrainJobs(24); err != nil {
-		t.Fatalf("drain jobs: %v", err)
-	}
-	collection, err := service.CreateCollection("Research", "Ideas worth keeping")
-	if err != nil {
-		t.Fatalf("create collection: %v", err)
-	}
-	if _, err := service.AddThoughtToCollection(collection.ID, first.ID); err != nil {
-		t.Fatalf("add thought to collection: %v", err)
-	}
-
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query { me { id username interests } viewer { id username interests } }", nil), "me", "viewer")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query { myThoughts(limit: 10) { id currentVersion { content } } }", nil), "myThoughts")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query Thought($id: ID!) { thought(id: $id) { id concepts { canonicalName } relatedThoughts { id } versions { id version } } }", map[string]interface{}{"id": first.ID}), "thought")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query ConceptByName($name: String!) { concept(name: $name) { id canonicalName topThoughts { id } relatedConcepts { id } thoughtCount } }", map[string]interface{}{"name": "discipline"}), "concept")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query ConceptBySlug($slug: String!) { concept(slug: $slug) { id canonicalName } }", map[string]interface{}{"slug": "discipline"}), "concept")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query Search($query: String!) { search(query: $query) { thoughts { id } clusters { label thoughtIds } } searchThoughts(query: $query) { thoughts { id } } }", map[string]interface{}{"query": "discipline"}), "search", "searchThoughts")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query Draft($content: String!) { draftSuggestions(content: $content) { relatedConcepts reframes supportingThoughts { id } counterThoughts { id } notes } }", map[string]interface{}{"content": "Stoicism builds discipline"}), "draftSuggestions")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query Telescope($query: String!) { telescope(query: $query) { query intent narrative seedConcepts { id canonicalName } seedThoughts { id } graph { center { thought { id } } } clusters { label } suggestedJumps { label query } relatedCurrents { id } } }", map[string]interface{}{"query": "connections between stoicism and discipline"}), "telescope")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query Graph($thoughtId: ID!) { graph(thoughtId: $thoughtId, hopCount: 2, limit: 12) { center { thought { id } } nodes { thought { id } } edges { link { id relationType } } } }", map[string]interface{}{"thoughtId": first.ID}), "graph")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query Collection($id: ID!) { collection(id: $id) { id title items { thought { id } } } collections { id title } }", map[string]interface{}{"id": collection.ID}), "collection", "collections")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query Discovery { currents(limit: 4) { id title thoughts { id } concepts { id } } home(limit: 4) { viewer { id interests } currents { id } recommendedThoughts { id } recommendedCollections { id } } }", nil), "currents", "home")
-
-	relatedPayload := executeGraphQL(t, server, "query Thought($id: ID!) { thought(id: $id) { relatedThoughts { id } } }", map[string]interface{}{"id": first.ID})
-	if !bytes.Contains(relatedPayload, []byte(second.ID)) {
-		t.Fatalf("expected related thought %s in payload %s", second.ID, string(relatedPayload))
-	}
+type graphQLHarness struct {
+	server        *api.GraphQLServer
+	service       *actions.Service
+	firstThought  string
+	secondThought string
+	collectionID  string
 }
 
-func TestGraphQLMutationsCoverPrimaryWriteSurface(t *testing.T) {
-	server, service := newTestGraphQLServer(t)
+func TestGraphQLThoughtLifecycleFlow(t *testing.T) {
+	h := newGraphQLHarness(t)
+	h.seedThoughts(t)
 
-	createPayload := executeGraphQL(t, server, "mutation CreateThought($content: String!) { createThought(content: $content) { id currentVersion { id version content } processingStatus } }", map[string]interface{}{"content": "Boredom creates space for reflection."})
+	editPayload := h.exec(t, mutationEditThought, map[string]interface{}{
+		"thoughtId": h.firstThought,
+		"content":   "Stoicism and boxing both train discipline under deliberate discomfort.",
+	})
+	assertGraphQLHasData(t, editPayload, "editThought")
+
+	h.drain(t, 16, "after edit thought")
+
+	payload := h.exec(t, queryThoughtLifecycle, map[string]interface{}{"id": h.firstThought})
+	assertGraphQLHasData(t, payload, "thought", "relatedThoughts", "listThoughtVersions")
+	assertPayloadContains(t, payload, h.firstThought)
+	assertPayloadContains(t, payload, h.secondThought)
+}
+
+func TestGraphQLDiscoveryFlow(t *testing.T) {
+	h := newGraphQLHarness(t)
+	h.seedThoughts(t)
+	h.createCollection(t)
+	h.addThoughtToCollection(t, h.firstThought)
+
+	searchPayload := h.exec(t, queryDiscoverySearch, map[string]interface{}{"query": "discipline"})
+	assertGraphQLHasData(t, searchPayload, "search", "searchThoughts")
+
+	conceptPayload := h.exec(t, queryConceptByName, map[string]interface{}{"name": "discipline"})
+	assertGraphQLHasData(t, conceptPayload, "concept")
+
+	conceptSlugPayload := h.exec(t, queryConceptBySlug, map[string]interface{}{"slug": "discipline"})
+	assertGraphQLHasData(t, conceptSlugPayload, "concept")
+
+	graphPayload := h.exec(t, queryDiscoveryGraph, map[string]interface{}{"thoughtId": h.firstThought})
+	assertGraphQLHasData(t, graphPayload, "graph")
+
+	discoveryPayload := h.exec(t, queryDiscoverySurface, map[string]interface{}{
+		"query":        "connections between stoicism and discipline",
+		"thoughtId":    h.firstThought,
+		"collectionId": h.collectionID,
+	})
+	assertGraphQLHasData(t, discoveryPayload, "currents", "home", "collection", "collections", "draftSuggestions", "telescope")
+	assertPayloadContains(t, discoveryPayload, "narrative")
+}
+
+func TestGraphQLCollectionsAndPersonalizationFlow(t *testing.T) {
+	h := newGraphQLHarness(t)
+	h.seedThoughts(t)
+
+	createPayload := h.exec(t, mutationCreateThought, map[string]interface{}{
+		"content": "Boredom creates space for reflection.",
+	})
 	createdID := mustExtractID(t, createPayload, "createThought")
-	if err := service.DrainJobs(8); err != nil {
-		t.Fatalf("drain jobs after create: %v", err)
-	}
+	h.drain(t, 8, "after create thought")
 
-	assertGraphQLHasData(t, executeGraphQL(t, server, "mutation EditThought($thoughtId: ID!, $content: String!) { editThought(thoughtId: $thoughtId, content: $content) { id currentVersion { version content } } }", map[string]interface{}{"thoughtId": createdID, "content": "Boredom creates space for reflection and creative recovery."}), "editThought")
-	if err := service.DrainJobs(8); err != nil {
-		t.Fatalf("drain jobs after edit: %v", err)
-	}
+	updatePayload := h.exec(t, mutationUpdateThought, map[string]interface{}{
+		"thoughtId": createdID,
+		"content":   "Boredom creates space for reflection, recovery, and new ideas.",
+	})
+	assertGraphQLHasData(t, updatePayload, "updateThought")
+	h.drain(t, 8, "after update thought")
 
-	assertGraphQLHasData(t, executeGraphQL(t, server, "mutation UpdateThought($thoughtId: ID!, $content: String!) { updateThought(thoughtId: $thoughtId, content: $content) { id currentVersion { version content } } }", map[string]interface{}{"thoughtId": createdID, "content": "Boredom creates space for reflection, recovery, and new ideas."}), "updateThought")
-	if err := service.DrainJobs(8); err != nil {
-		t.Fatalf("drain jobs after update: %v", err)
-	}
+	h.createCollection(t)
+	h.addThoughtToCollection(t, createdID)
+	h.recordThoughtEngagement(t, createdID)
 
-	collectionPayload := executeGraphQL(t, server, "mutation CreateCollection($title: String!, $description: String) { createCollection(title: $title, description: $description) { id title description } }", map[string]interface{}{"title": "Creative Inputs", "description": "Notes about creative recovery"})
-	collectionID := mustExtractID(t, collectionPayload, "createCollection")
-
-	assertGraphQLHasData(t, executeGraphQL(t, server, "mutation AddToCollection($collectionId: ID!, $thoughtId: ID!) { addThoughtToCollection(collectionId: $collectionId, thoughtId: $thoughtId) { id items { thought { id } } } }", map[string]interface{}{"collectionId": collectionID, "thoughtId": createdID}), "addThoughtToCollection")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "mutation RecordEngagement($entityType: String!, $entityId: ID!, $actionType: String!, $dwellMs: Int) { recordEngagement(entityType: $entityType, entityId: $entityId, actionType: $actionType, dwellMs: $dwellMs) { id entityType entityId actionType dwellMs } }", map[string]interface{}{"entityType": "thought", "entityId": createdID, "actionType": "open", "dwellMs": 3200}), "recordEngagement")
+	payload := h.exec(t, queryViewerAndPersonalization, map[string]interface{}{"collectionId": h.collectionID})
+	assertGraphQLHasData(t, payload, "me", "viewer", "viewerInterests", "myThoughts", "currents", "home", "collection", "collections")
+	assertPayloadContains(t, payload, h.collectionID)
 }
 
 func TestGraphQLCurrentsExposeMaterializedDiscoveryFields(t *testing.T) {
-	server, service := newTestGraphQLServer(t)
+	h := newGraphQLHarness(t)
 
-	_, _ = service.CreateThought("Stoicism helps founders build discipline under pressure.")
-	_, _ = service.CreateThought("Boxing makes discipline tangible through repeated practice.")
-	if err := service.DrainJobs(24); err != nil {
-		t.Fatalf("drain jobs: %v", err)
-	}
+	_, _ = h.service.CreateThought("Stoicism helps founders build discipline under pressure.")
+	_, _ = h.service.CreateThought("Boxing makes discipline tangible through repeated practice.")
+	h.drain(t, 24, "after currents seed")
 
-	payload := executeGraphQL(t, server, "query Discovery { currents(limit: 4) { id title summary clusterKey freshnessScore qualityScore thoughts { id } concepts { canonicalName } } }", nil)
+	payload := h.exec(t, queryCurrentsRich, nil)
 
 	var response graphQLResponse
 	if err := json.Unmarshal(payload, &response); err != nil {
@@ -162,6 +178,72 @@ func TestGraphQLServerHandlesMethodAndPayloadErrors(t *testing.T) {
 	}
 }
 
+func newGraphQLHarness(t *testing.T) *graphQLHarness {
+	t.Helper()
+	server, service := newTestGraphQLServer(t)
+	return &graphQLHarness{server: server, service: service}
+}
+
+func (h *graphQLHarness) seedThoughts(t *testing.T) {
+	t.Helper()
+	firstPayload := h.exec(t, mutationCreateThought, map[string]interface{}{
+		"content": "Stoicism and boxing both train discipline under discomfort.",
+	})
+	h.firstThought = mustExtractID(t, firstPayload, "createThought")
+
+	secondPayload := h.exec(t, mutationCreateThought, map[string]interface{}{
+		"content": "Founder psychology borrows discipline rituals from martial arts.",
+	})
+	h.secondThought = mustExtractID(t, secondPayload, "createThought")
+
+	h.exec(t, mutationCreateThought, map[string]interface{}{
+		"content": "Creativity often needs boredom and silence.",
+	})
+
+	h.drain(t, 24, "after seeding thoughts")
+}
+
+func (h *graphQLHarness) createCollection(t *testing.T) {
+	t.Helper()
+	payload := h.exec(t, mutationCreateCollection, map[string]interface{}{
+		"title":       "Research",
+		"description": "Ideas worth keeping",
+	})
+	h.collectionID = mustExtractID(t, payload, "createCollection")
+}
+
+func (h *graphQLHarness) addThoughtToCollection(t *testing.T, thoughtID string) {
+	t.Helper()
+	payload := h.exec(t, mutationAddThoughtToCollection, map[string]interface{}{
+		"collectionId": h.collectionID,
+		"thoughtId":    thoughtID,
+	})
+	assertGraphQLHasData(t, payload, "addThoughtToCollection")
+}
+
+func (h *graphQLHarness) recordThoughtEngagement(t *testing.T, thoughtID string) {
+	t.Helper()
+	payload := h.exec(t, mutationRecordEngagement, map[string]interface{}{
+		"entityType": "thought",
+		"entityId":   thoughtID,
+		"actionType": "open",
+		"dwellMs":    3200,
+	})
+	assertGraphQLHasData(t, payload, "recordEngagement")
+}
+
+func (h *graphQLHarness) drain(t *testing.T, maxJobs int, label string) {
+	t.Helper()
+	if err := h.service.DrainJobs(maxJobs); err != nil {
+		t.Fatalf("drain jobs %s: %v", label, err)
+	}
+}
+
+func (h *graphQLHarness) exec(t *testing.T, query string, variables map[string]interface{}) []byte {
+	t.Helper()
+	return executeGraphQL(t, h.server, query, variables)
+}
+
 func newTestGraphQLServer(t *testing.T) (*api.GraphQLServer, *actions.Service) {
 	t.Helper()
 	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
@@ -230,4 +312,11 @@ func mustExtractID(t *testing.T, payload []byte, rootKey string) string {
 		t.Fatalf("expected non-empty id in %s payload %s", rootKey, string(raw))
 	}
 	return data.ID
+}
+
+func assertPayloadContains(t *testing.T, payload []byte, needle string) {
+	t.Helper()
+	if !bytes.Contains(payload, []byte(needle)) {
+		t.Fatalf("expected payload to contain %q, got %s", needle, string(payload))
+	}
 }
