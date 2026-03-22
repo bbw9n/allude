@@ -3,6 +3,8 @@ package actions
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/bbw9n/allude/services/api/internal/domains/models"
@@ -40,6 +42,70 @@ func (service *Service) Viewer() *models.User {
 
 func (service *Service) MyThoughts(limit int) ([]*models.Thought, error) {
 	return service.repository.ListThoughtsByAuthor(shared.ViewerID, limit)
+}
+
+func (service *Service) Currents(limit int) ([]*models.IdeaCurrent, error) {
+	thoughts, err := service.repository.ListRecentThoughts(max(limit*4, 24))
+	if err != nil {
+		return nil, err
+	}
+	return buildIdeaCurrents(thoughts, limit), nil
+}
+
+func (service *Service) Home(limit int) (*models.HomePayload, error) {
+	currents, err := service.Currents(max(limit, 4))
+	if err != nil {
+		return nil, err
+	}
+	collections, err := service.repository.ListCollections()
+	if err != nil {
+		return nil, err
+	}
+
+	recommendedThoughts := make([]*models.Thought, 0, limit)
+	seenThoughts := map[string]struct{}{}
+	for _, current := range currents {
+		for _, thought := range current.Thoughts {
+			if _, exists := seenThoughts[thought.ID]; exists {
+				continue
+			}
+			seenThoughts[thought.ID] = struct{}{}
+			recommendedThoughts = append(recommendedThoughts, thought)
+			if len(recommendedThoughts) == limit {
+				break
+			}
+		}
+		if len(recommendedThoughts) == limit {
+			break
+		}
+	}
+
+	if len(recommendedThoughts) < limit {
+		recentThoughts, err := service.repository.ListRecentThoughts(limit * 2)
+		if err == nil {
+			for _, thought := range recentThoughts {
+				if _, exists := seenThoughts[thought.ID]; exists {
+					continue
+				}
+				seenThoughts[thought.ID] = struct{}{}
+				recommendedThoughts = append(recommendedThoughts, thought)
+				if len(recommendedThoughts) == limit {
+					break
+				}
+			}
+		}
+	}
+
+	if len(collections) > limit {
+		collections = collections[:limit]
+	}
+
+	return &models.HomePayload{
+		Viewer:                 service.Viewer(),
+		Currents:               currents,
+		RecommendedThoughts:    recommendedThoughts,
+		RecommendedCollections: collections,
+	}, nil
 }
 
 func (service *Service) CreateThought(content string) (*models.Thought, error) {
@@ -140,6 +206,49 @@ func (service *Service) DraftSuggestions(content, thoughtID string) (*models.Dra
 	}
 
 	result.Reframes = buildReframes(result.RelatedConcepts, result.SupportingThoughts, result.CounterThoughts)
+	return result, nil
+}
+
+func (service *Service) Telescope(query string) (*models.TelescopeResult, error) {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return &models.TelescopeResult{
+			Query:     "",
+			Intent:    "explore",
+			Narrative: "Ask Allude about a tension, concept, contradiction, or connection to explore the idea graph.",
+		}, nil
+	}
+
+	analysis, err := service.ai.AnalyzeThought(trimmed)
+	if err != nil {
+		return nil, err
+	}
+	searchResult, err := service.repository.SearchThoughts(trimmed, analysis.Embedding, 12)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &models.TelescopeResult{
+		Query:    trimmed,
+		Intent:   telescopeIntent(trimmed),
+		Clusters: searchResult.Clusters,
+	}
+
+	result.SeedThoughts = limitedThoughts(searchResult.Thoughts, 4)
+	result.SeedConcepts = service.resolveSeedConcepts(trimmed, analysis.Concepts, searchResult.Clusters)
+	if len(result.SeedThoughts) > 0 {
+		graph, err := service.repository.GetGraphNeighborhood(result.SeedThoughts[0].ID, 2, 12)
+		if err == nil {
+			result.Graph = graph
+		}
+	}
+
+	currents, err := service.Currents(6)
+	if err == nil {
+		result.RelatedCurrents = filterCurrentsForTelescope(currents, result.SeedConcepts, result.SeedThoughts, 3)
+	}
+	result.SuggestedJumps = buildTelescopeSuggestedJumps(trimmed, result.Intent, result.SeedConcepts, searchResult.Clusters, result.SeedThoughts)
+	result.Narrative = buildTelescopeNarrative(trimmed, result.Intent, result.SeedConcepts, result.SeedThoughts, searchResult.Clusters)
 	return result, nil
 }
 
@@ -316,6 +425,320 @@ func uniqueLimitedStrings(values []string, limit int) []string {
 		}
 	}
 	return result
+}
+
+func buildIdeaCurrents(thoughts []*models.Thought, limit int) []*models.IdeaCurrent {
+	type bucket struct {
+		concept  *models.Concept
+		thoughts []*models.Thought
+		quality  float64
+	}
+
+	buckets := map[string]*bucket{}
+	for _, thought := range thoughts {
+		if thought == nil || thought.CurrentVersion == nil {
+			continue
+		}
+		var concept *models.Concept
+		if len(thought.Concepts) > 0 {
+			concept = thought.Concepts[0]
+		} else {
+			concept = &models.Concept{
+				ID:            "uncategorized",
+				CanonicalName: "Unsorted Ideas",
+				Slug:          "unsorted-ideas",
+			}
+		}
+		entry := buckets[concept.ID]
+		if entry == nil {
+			entry = &bucket{concept: concept}
+			buckets[concept.ID] = entry
+		}
+		entry.thoughts = append(entry.thoughts, thought)
+		entry.quality += semantics.QualityScore(thought)
+	}
+
+	currents := make([]*models.IdeaCurrent, 0, len(buckets))
+	for _, entry := range buckets {
+		if len(entry.thoughts) == 0 {
+			continue
+		}
+		if len(entry.thoughts) > 4 {
+			entry.thoughts = entry.thoughts[:4]
+		}
+		quality := entry.quality / float64(len(entry.thoughts))
+		freshness := 1.0 / float64(len(currents)+1)
+		title := fmt.Sprintf("Current: %s", entry.concept.CanonicalName)
+		summary := buildCurrentSummary(entry.concept, entry.thoughts)
+		current := &models.IdeaCurrent{
+			ID:             entry.concept.ID,
+			Title:          title,
+			Summary:        summary,
+			ClusterKey:     entry.concept.Slug,
+			FreshnessScore: freshness,
+			QualityScore:   quality,
+			Concepts:       []*models.Concept{entry.concept},
+			Thoughts:       entry.thoughts,
+			CreatedAt:      entry.thoughts[0].CreatedAt,
+			UpdatedAt:      entry.thoughts[0].UpdatedAt,
+		}
+		currents = append(currents, current)
+	}
+
+	sort.Slice(currents, func(i, j int) bool {
+		left := currents[i].QualityScore + currents[i].FreshnessScore
+		right := currents[j].QualityScore + currents[j].FreshnessScore
+		if left == right {
+			return currents[i].UpdatedAt > currents[j].UpdatedAt
+		}
+		return left > right
+	})
+	if len(currents) > limit {
+		currents = currents[:limit]
+	}
+	return currents
+}
+
+func buildCurrentSummary(concept *models.Concept, thoughts []*models.Thought) string {
+	phrases := make([]string, 0, min(len(thoughts), 2))
+	for _, thought := range thoughts {
+		content := strings.TrimSpace(thought.CurrentVersion.Content)
+		if content == "" {
+			continue
+		}
+		if len(content) > 88 {
+			content = content[:88] + "..."
+		}
+		phrases = append(phrases, content)
+		if len(phrases) == 2 {
+			break
+		}
+	}
+	if len(phrases) == 0 {
+		return fmt.Sprintf("A developing cluster around %s.", strings.ToLower(concept.CanonicalName))
+	}
+	return fmt.Sprintf("%s is surfacing through %d connected thought%s, including %s",
+		concept.CanonicalName,
+		len(thoughts),
+		pluralSuffix(len(thoughts)),
+		strings.Join(phrases, " and "),
+	)
+}
+
+func pluralSuffix(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func min(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func max(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func limitedThoughts(thoughts []*models.Thought, limit int) []*models.Thought {
+	if len(thoughts) <= limit {
+		return thoughts
+	}
+	return thoughts[:limit]
+}
+
+func telescopeIntent(query string) string {
+	lower := strings.ToLower(query)
+	switch {
+	case strings.Contains(lower, "disagree"), strings.Contains(lower, "contradict"), strings.Contains(lower, "oppose"):
+		return "contradict"
+	case strings.Contains(lower, "compare"), strings.Contains(lower, "versus"), strings.Contains(lower, "vs"):
+		return "compare"
+	case strings.Contains(lower, "connect"), strings.Contains(lower, "connection"), strings.Contains(lower, "between"):
+		return "connect"
+	default:
+		return "explore"
+	}
+}
+
+func (service *Service) resolveSeedConcepts(query string, conceptNames []string, clusters []*models.SearchCluster) []*models.Concept {
+	seen := map[string]struct{}{}
+	seeds := make([]*models.Concept, 0, 6)
+	appendConcept := func(concept *models.Concept) {
+		if concept == nil {
+			return
+		}
+		if _, exists := seen[concept.ID]; exists {
+			return
+		}
+		seen[concept.ID] = struct{}{}
+		seeds = append(seeds, concept)
+	}
+
+	for _, name := range uniqueLimitedStrings(conceptNames, 4) {
+		concept, err := service.repository.GetConceptByName(name)
+		if err == nil && concept != nil {
+			appendConcept(concept)
+		}
+	}
+	for _, cluster := range clusters {
+		for _, concept := range cluster.Concepts {
+			appendConcept(concept)
+			if len(seeds) == 6 {
+				return seeds
+			}
+		}
+	}
+
+	queryWords := uniqueLimitedStrings(strings.Fields(strings.ToLower(query)), 4)
+	for _, word := range queryWords {
+		concept, err := service.repository.GetConceptByName(word)
+		if err == nil && concept != nil {
+			appendConcept(concept)
+			if len(seeds) == 6 {
+				return seeds
+			}
+		}
+	}
+	return seeds
+}
+
+func filterCurrentsForTelescope(currents []*models.IdeaCurrent, concepts []*models.Concept, thoughts []*models.Thought, limit int) []*models.IdeaCurrent {
+	conceptIDs := map[string]struct{}{}
+	thoughtIDs := map[string]struct{}{}
+	for _, concept := range concepts {
+		conceptIDs[concept.ID] = struct{}{}
+	}
+	for _, thought := range thoughts {
+		thoughtIDs[thought.ID] = struct{}{}
+	}
+
+	filtered := make([]*models.IdeaCurrent, 0, limit)
+	for _, current := range currents {
+		matched := false
+		for _, concept := range current.Concepts {
+			if _, exists := conceptIDs[concept.ID]; exists {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			for _, thought := range current.Thoughts {
+				if _, exists := thoughtIDs[thought.ID]; exists {
+					matched = true
+					break
+				}
+			}
+		}
+		if matched {
+			filtered = append(filtered, current)
+			if len(filtered) == limit {
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+func buildTelescopeSuggestedJumps(query, intent string, seedConcepts []*models.Concept, clusters []*models.SearchCluster, thoughts []*models.Thought) []*models.TelescopeJump {
+	jumps := make([]*models.TelescopeJump, 0, 4)
+	appendJump := func(label, jumpQuery, reason string, thoughtIDs []string) {
+		for _, existing := range jumps {
+			if existing.Query == jumpQuery {
+				return
+			}
+		}
+		jumps = append(jumps, &models.TelescopeJump{
+			Label:      label,
+			Query:      jumpQuery,
+			Reason:     reason,
+			ThoughtIDs: thoughtIDs,
+		})
+	}
+
+	if len(seedConcepts) > 0 {
+		concept := seedConcepts[0]
+		appendJump(
+			"Go deeper on "+concept.CanonicalName,
+			"adjacent ideas to "+strings.ToLower(concept.CanonicalName),
+			"Expand the strongest concept cluster from this result.",
+			nil,
+		)
+		appendJump(
+			"Find disagreement",
+			"who disagrees with "+strings.ToLower(concept.CanonicalName),
+			"Surface contradiction and alternative takes.",
+			nil,
+		)
+	}
+	if len(clusters) > 1 {
+		appendJump(
+			"Compare clusters",
+			"connections between "+strings.ToLower(clusters[0].Label)+" and "+strings.ToLower(clusters[1].Label),
+			"Follow the strongest bridge between the top clusters.",
+			appendUniqueThoughtIDs(thoughts, 3),
+		)
+	}
+	if intent != "contradict" {
+		appendJump(
+			"Look for tensions",
+			"contradictions in "+query,
+			"Ask for the edge cases and objections.",
+			appendUniqueThoughtIDs(thoughts, 3),
+		)
+	}
+	return jumps
+}
+
+func buildTelescopeNarrative(query, intent string, seedConcepts []*models.Concept, thoughts []*models.Thought, clusters []*models.SearchCluster) string {
+	if len(thoughts) == 0 {
+		return fmt.Sprintf("Allude couldn’t find a strong cluster for %q yet. Try naming a concept directly or asking for a comparison or contradiction.", query)
+	}
+
+	parts := []string{
+		fmt.Sprintf("For %q, Allude found %d thought%s across %d cluster%s.", query, len(thoughts), pluralSuffix(len(thoughts)), len(clusters), pluralSuffix(len(clusters))),
+	}
+	if len(seedConcepts) > 0 {
+		conceptNames := make([]string, 0, min(len(seedConcepts), 3))
+		for _, concept := range seedConcepts[:min(len(seedConcepts), 3)] {
+			conceptNames = append(conceptNames, concept.CanonicalName)
+		}
+		parts = append(parts, fmt.Sprintf("The strongest concepts are %s.", strings.Join(conceptNames, ", ")))
+	}
+
+	switch intent {
+	case "contradict":
+		parts = append(parts, "This query is framed as disagreement, so the best next step is to inspect opposing thoughts and edge-case clusters.")
+	case "compare":
+		parts = append(parts, "This query is framed as a comparison, so the best next step is to inspect where the top clusters overlap and diverge.")
+	case "connect":
+		parts = append(parts, "This query is framed as a connection search, so the best next step is to follow the bridge thoughts between the leading concepts.")
+	default:
+		parts = append(parts, "This query is exploratory, so the best next step is to pivot into the strongest cluster and then branch into adjacent ideas.")
+	}
+	return strings.Join(parts, " ")
+}
+
+func appendUniqueThoughtIDs(thoughts []*models.Thought, limit int) []string {
+	ids := make([]string, 0, min(len(thoughts), limit))
+	seen := map[string]struct{}{}
+	for _, thought := range thoughts {
+		if _, exists := seen[thought.ID]; exists {
+			continue
+		}
+		seen[thought.ID] = struct{}{}
+		ids = append(ids, thought.ID)
+		if len(ids) == limit {
+			break
+		}
+	}
+	return ids
 }
 
 func buildReframes(concepts []string, supportingThoughts, counterThoughts []*models.Thought) []string {

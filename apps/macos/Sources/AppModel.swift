@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
     @Published var graph: GraphNeighborhood?
     @Published var telescopeQuery = ""
     @Published var searchResult = SearchThoughtsResult(thoughts: [], clusters: [])
+    @Published var selectedSearchClusterLabel: String?
     @Published var draftSuggestions = DraftSuggestions.empty
     @Published var draft = ""
     @Published var newCollectionTitle = ""
@@ -79,9 +80,12 @@ final class AppModel: ObservableObject {
             )
             searchResult = data.searchThoughts
             thoughts = data.searchThoughts.thoughts
-            if let first = data.searchThoughts.thoughts.first {
+            selectedSearchClusterLabel = data.searchThoughts.clusters.first?.label
+            if let first = filteredSearchThoughts.first {
                 selectedThought = first
                 selectedSection = .telescope
+            } else {
+                selectedThought = nil
             }
         } catch {
             errorMessage = "Search failed. Make sure the API is running."
@@ -243,6 +247,19 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func selectSearchCluster(label: String?) {
+        selectedSearchClusterLabel = label
+        if let filteredFirst = filteredSearchThoughts.first {
+            selectedThought = filteredFirst
+        } else {
+            selectedThought = searchResult.thoughts.first
+        }
+    }
+
+    func applyTelescopeSuggestion(_ query: String) {
+        telescopeQuery = query
+    }
+
     func startNewThought() {
         selectedThought = nil
         draft = ""
@@ -364,5 +381,52 @@ final class AppModel: ObservableObject {
         .sorted { $0.weight > $1.weight }
 
         return PersonalThinkingMap(concepts: concepts, edges: Array(edges.prefix(28)))
+    }
+
+    var filteredSearchThoughts: [Thought] {
+        guard let selectedSearchClusterLabel,
+              let cluster = searchResult.clusters.first(where: { $0.label == selectedSearchClusterLabel })
+        else {
+            return searchResult.thoughts
+        }
+
+        let clusterThoughtIDs = Set(cluster.thoughtIds)
+        let filtered = searchResult.thoughts.filter { clusterThoughtIDs.contains($0.id) }
+        return filtered.isEmpty ? searchResult.thoughts : filtered
+    }
+
+    var telescopeNarrative: String {
+        let trimmed = telescopeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "Search across your idea graph to surface concept clusters, related thoughts, and promising next jumps."
+        }
+
+        let thoughtCount = searchResult.thoughts.count
+        let clusterCount = searchResult.clusters.count
+        if thoughtCount == 0 {
+            return "No strong matches yet for “\(trimmed)”. Try narrowing the claim, naming a concept directly, or combining two tensions."
+        }
+
+        if let selectedSearchClusterLabel {
+            return "For “\(trimmed)”, Allude found \(thoughtCount) matching thoughts across \(clusterCount) cluster\(clusterCount == 1 ? "" : "s"). You’re currently focused on \(selectedSearchClusterLabel.lowercased())."
+        }
+
+        return "For “\(trimmed)”, Allude found \(thoughtCount) matching thoughts across \(clusterCount) cluster\(clusterCount == 1 ? "" : "s")."
+    }
+
+    var telescopeSuggestedQueries: [String] {
+        let query = telescopeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            return [
+                "contradictions in \(query)",
+                "examples of \(query)",
+                "adjacent ideas to \(query)"
+            ]
+        }
+        return [
+            "connections between stoicism and startup culture",
+            "ideas related to boredom and creativity",
+            "thinkers who disagree with stoicism"
+        ]
     }
 }

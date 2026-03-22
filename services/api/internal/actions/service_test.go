@@ -163,6 +163,90 @@ func TestMyThoughtsReturnsViewerThoughts(t *testing.T) {
 	}
 }
 
+func TestCurrentsAndHomeReturnDiscoveryPayloads(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+	createdOne, _ := service.CreateThought("Stoicism helps founders hold steady under pressure.")
+	createdTwo, _ := service.CreateThought("Boxing turns discipline into a daily ritual.")
+	createdThree, _ := service.CreateThought("Creativity often needs boredom and silence.")
+	if err := service.DrainJobs(24); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+	collection, err := service.CreateCollection("Founder Notes", "Notes worth revisiting")
+	if err != nil {
+		t.Fatalf("create collection: %v", err)
+	}
+	if _, err := service.AddThoughtToCollection(collection.ID, createdOne.ID); err != nil {
+		t.Fatalf("add first thought to collection: %v", err)
+	}
+	if _, err := service.AddThoughtToCollection(collection.ID, createdTwo.ID); err != nil {
+		t.Fatalf("add second thought to collection: %v", err)
+	}
+	if _, err := service.RecordEngagement("thought", createdThree.ID, "open", 4200); err != nil {
+		t.Fatalf("record engagement: %v", err)
+	}
+
+	currents, err := service.Currents(4)
+	if err != nil {
+		t.Fatalf("currents: %v", err)
+	}
+	if len(currents) == 0 {
+		t.Fatal("expected at least one current")
+	}
+	if len(currents[0].Thoughts) == 0 {
+		t.Fatal("expected current to include clustered thoughts")
+	}
+
+	home, err := service.Home(4)
+	if err != nil {
+		t.Fatalf("home: %v", err)
+	}
+	if home.Viewer == nil {
+		t.Fatal("expected home payload to include viewer")
+	}
+	if len(home.Currents) == 0 {
+		t.Fatal("expected home payload to include currents")
+	}
+	if len(home.RecommendedThoughts) == 0 {
+		t.Fatal("expected home payload to include recommended thoughts")
+	}
+	if len(home.RecommendedCollections) == 0 {
+		t.Fatal("expected home payload to include recommended collections")
+	}
+}
+
+func TestTelescopeReturnsStructuredDiscoveryPayload(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+	_, _ = service.CreateThought("Stoicism and boxing both train discipline under discomfort.")
+	_, _ = service.CreateThought("Founder psychology borrows discipline rituals from martial arts.")
+	_, _ = service.CreateThought("Founders sometimes misuse stoicism as emotional suppression.")
+	if err := service.DrainJobs(24); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+
+	result, err := service.Telescope("connections between stoicism and discipline")
+	if err != nil {
+		t.Fatalf("telescope: %v", err)
+	}
+	if result.Intent != "connect" {
+		t.Fatalf("expected connect intent, got %s", result.Intent)
+	}
+	if len(result.SeedThoughts) == 0 {
+		t.Fatal("expected telescope to return seed thoughts")
+	}
+	if len(result.Clusters) == 0 {
+		t.Fatal("expected telescope to return clusters")
+	}
+	if result.Graph == nil || result.Graph.Center == nil {
+		t.Fatal("expected telescope to include a graph neighborhood")
+	}
+	if len(result.SuggestedJumps) == 0 {
+		t.Fatal("expected telescope to return suggested jumps")
+	}
+	if result.Narrative == "" {
+		t.Fatal("expected telescope to return a narrative")
+	}
+}
+
 func TestGraphQLServerSupportsQueriesAndMutations(t *testing.T) {
 	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
 	server, err := apiGraphql.NewGraphQLServer(service)
@@ -231,5 +315,25 @@ func TestGraphQLServerSupportsQueriesAndMutations(t *testing.T) {
 	server.ServeHTTP(myThoughtsResponse, myThoughtsRequest)
 	if !bytes.Contains(myThoughtsResponse.Body.Bytes(), []byte("myThoughts")) {
 		t.Fatalf("expected myThoughts payload, got %s", myThoughtsResponse.Body.String())
+	}
+
+	currentsBody, _ := json.Marshal(map[string]interface{}{
+		"query": "{ currents(limit: 4) { id title thoughts { id } } }",
+	})
+	currentsRequest := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(currentsBody))
+	currentsResponse := httptest.NewRecorder()
+	server.ServeHTTP(currentsResponse, currentsRequest)
+	if !bytes.Contains(currentsResponse.Body.Bytes(), []byte("currents")) {
+		t.Fatalf("expected currents payload, got %s", currentsResponse.Body.String())
+	}
+
+	homeBody, _ := json.Marshal(map[string]interface{}{
+		"query": "{ home(limit: 4) { viewer { id } currents { id } recommendedThoughts { id } } }",
+	})
+	homeRequest := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(homeBody))
+	homeResponse := httptest.NewRecorder()
+	server.ServeHTTP(homeResponse, homeRequest)
+	if !bytes.Contains(homeResponse.Body.Bytes(), []byte("recommendedThoughts")) {
+		t.Fatalf("expected home payload, got %s", homeResponse.Body.String())
 	}
 }

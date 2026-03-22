@@ -5,6 +5,7 @@ import "github.com/bbw9n/allude/services/api/internal/domains/models"
 type Repository interface {
 	GetViewer() *models.User
 	ListThoughtsByAuthor(authorID string, limit int) ([]*models.Thought, error)
+	ListRecentThoughts(limit int) ([]*models.Thought, error)
 	CreateThought(authorID, content string) (*models.Thought, error)
 	UpdateThought(thoughtID, content string) (*models.Thought, error)
 	GetThought(thoughtID string) (*models.Thought, error)

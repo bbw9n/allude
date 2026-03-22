@@ -243,6 +243,30 @@ func (repository *PostgresRepository) ListThoughtsByAuthor(authorID string, limi
 	return thoughts, nil
 }
 
+func (repository *PostgresRepository) ListRecentThoughts(limit int) ([]*Thought, error) {
+	ctx := context.Background()
+	var ids []string
+	if err := repository.db.NewSelect().
+		Model((*thoughtRow)(nil)).
+		Column("id").
+		Order("updated_at DESC").
+		Limit(limit).
+		Scan(ctx, &ids); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []*Thought{}, nil
+		}
+		return nil, err
+	}
+	thoughts := make([]*Thought, 0, len(ids))
+	for _, thoughtID := range ids {
+		thought, err := repository.GetThought(thoughtID)
+		if err == nil {
+			thoughts = append(thoughts, thought)
+		}
+	}
+	return thoughts, nil
+}
+
 func (repository *PostgresRepository) CreateThought(authorID, content string) (*Thought, error) {
 	ctx := context.Background()
 	thoughtID := newUUID()

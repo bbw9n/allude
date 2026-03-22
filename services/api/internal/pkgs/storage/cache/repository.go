@@ -45,6 +45,18 @@ func (repository *CachedRepository) ListThoughtsByAuthor(authorID string, limit 
 	return thoughts, err
 }
 
+func (repository *CachedRepository) ListRecentThoughts(limit int) ([]*models.Thought, error) {
+	key := fmt.Sprintf("thoughts:recent:%d", limit)
+	if value, ok := repository.get(key); ok {
+		return value.([]*models.Thought), nil
+	}
+	thoughts, err := repository.next.ListRecentThoughts(limit)
+	if err == nil && thoughts != nil {
+		repository.set(key, thoughts)
+	}
+	return thoughts, err
+}
+
 func (repository *CachedRepository) CreateThought(authorID, content string) (*models.Thought, error) {
 	thought, err := repository.next.CreateThought(authorID, content)
 	if err == nil {

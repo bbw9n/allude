@@ -199,6 +199,45 @@ type DraftSuggestions struct {
 	Notes              []string   `json:"notes"`
 }
 
+type IdeaCurrent struct {
+	ID             string     `json:"id"`
+	Title          string     `json:"title"`
+	Summary        string     `json:"summary,omitempty"`
+	ClusterKey     string     `json:"clusterKey,omitempty"`
+	FreshnessScore float64    `json:"freshnessScore"`
+	QualityScore   float64    `json:"qualityScore"`
+	Concepts       []*Concept `json:"concepts,omitempty"`
+	Thoughts       []*Thought `json:"thoughts,omitempty"`
+	CreatedAt      string     `json:"createdAt"`
+	UpdatedAt      string     `json:"updatedAt"`
+}
+
+type HomePayload struct {
+	Viewer                 *User          `json:"viewer,omitempty"`
+	Currents               []*IdeaCurrent `json:"currents"`
+	RecommendedThoughts    []*Thought     `json:"recommendedThoughts"`
+	RecommendedCollections []*Collection  `json:"recommendedCollections"`
+}
+
+type TelescopeJump struct {
+	Label      string   `json:"label"`
+	Query      string   `json:"query"`
+	Reason     string   `json:"reason,omitempty"`
+	ThoughtIDs []string `json:"thoughtIds,omitempty"`
+}
+
+type TelescopeResult struct {
+	Query           string             `json:"query"`
+	Intent          string             `json:"intent"`
+	SeedConcepts    []*Concept         `json:"seedConcepts,omitempty"`
+	SeedThoughts    []*Thought         `json:"seedThoughts,omitempty"`
+	Graph           *GraphNeighborhood `json:"graph,omitempty"`
+	Clusters        []*SearchCluster   `json:"clusters,omitempty"`
+	Narrative       string             `json:"narrative"`
+	SuggestedJumps  []*TelescopeJump   `json:"suggestedJumps,omitempty"`
+	RelatedCurrents []*IdeaCurrent     `json:"relatedCurrents,omitempty"`
+}
+
 type Job struct {
 	ID           string            `json:"id"`
 	Type         JobType           `json:"type"`

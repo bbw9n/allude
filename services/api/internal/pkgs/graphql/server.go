@@ -64,6 +64,8 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 	var thoughtType *graphql.Object
 	var conceptType *graphql.Object
 	var collectionType *graphql.Object
+	var ideaCurrentType *graphql.Object
+	var telescopeResultType *graphql.Object
 
 	userType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "User",
@@ -264,6 +266,61 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 		},
 	})
 
+	ideaCurrentType = graphql.NewObject(graphql.ObjectConfig{
+		Name: "IdeaCurrent",
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			return graphql.Fields{
+				"id":             &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+				"title":          &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+				"summary":        &graphql.Field{Type: graphql.String},
+				"clusterKey":     &graphql.Field{Type: graphql.String},
+				"freshnessScore": &graphql.Field{Type: graphql.Float},
+				"qualityScore":   &graphql.Field{Type: graphql.Float},
+				"concepts":       &graphql.Field{Type: graphql.NewList(conceptType)},
+				"thoughts":       &graphql.Field{Type: graphql.NewList(thoughtType)},
+				"createdAt":      &graphql.Field{Type: graphql.String},
+				"updatedAt":      &graphql.Field{Type: graphql.String},
+			}
+		}),
+	})
+
+	telescopeJumpType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "TelescopeJump",
+		Fields: graphql.Fields{
+			"label":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"query":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"reason":     &graphql.Field{Type: graphql.String},
+			"thoughtIds": &graphql.Field{Type: graphql.NewList(graphql.ID)},
+		},
+	})
+
+	telescopeResultType = graphql.NewObject(graphql.ObjectConfig{
+		Name: "TelescopeResult",
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			return graphql.Fields{
+				"query":           &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+				"intent":          &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+				"seedConcepts":    &graphql.Field{Type: graphql.NewList(conceptType)},
+				"seedThoughts":    &graphql.Field{Type: graphql.NewList(thoughtType)},
+				"graph":           &graphql.Field{Type: graphNeighborhoodType},
+				"clusters":        &graphql.Field{Type: graphql.NewList(searchClusterType)},
+				"narrative":       &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+				"suggestedJumps":  &graphql.Field{Type: graphql.NewList(telescopeJumpType)},
+				"relatedCurrents": &graphql.Field{Type: graphql.NewList(ideaCurrentType)},
+			}
+		}),
+	})
+
+	homeType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "HomePayload",
+		Fields: graphql.Fields{
+			"viewer":                 &graphql.Field{Type: userType},
+			"currents":               &graphql.Field{Type: graphql.NewList(ideaCurrentType)},
+			"recommendedThoughts":    &graphql.Field{Type: graphql.NewList(thoughtType)},
+			"recommendedCollections": &graphql.Field{Type: graphql.NewList(collectionType)},
+		},
+	})
+
 	engagementType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "EngagementEvent",
 		Fields: graphql.Fields{
@@ -299,6 +356,24 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					return server.service.MyThoughts(optionalInt(p.Args, "limit", 40))
+				},
+			},
+			"currents": &graphql.Field{
+				Type: graphql.NewList(ideaCurrentType),
+				Args: graphql.FieldConfigArgument{
+					"limit": &graphql.ArgumentConfig{Type: graphql.Int},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.Currents(optionalInt(p.Args, "limit", 6))
+				},
+			},
+			"home": &graphql.Field{
+				Type: homeType,
+				Args: graphql.FieldConfigArgument{
+					"limit": &graphql.ArgumentConfig{Type: graphql.Int},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.Home(optionalInt(p.Args, "limit", 6))
 				},
 			},
 			"thought": &graphql.Field{
@@ -344,6 +419,15 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 						p.Args["content"].(string),
 						optionalString(p.Args, "thoughtId"),
 					)
+				},
+			},
+			"telescope": &graphql.Field{
+				Type: telescopeResultType,
+				Args: graphql.FieldConfigArgument{
+					"query": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.Telescope(p.Args["query"].(string))
 				},
 			},
 			"graph": &graphql.Field{
