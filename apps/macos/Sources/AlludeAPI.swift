@@ -223,6 +223,14 @@ enum AlludeAPI {
       }
     }
     """
+
+    static let myThoughts = """
+    query MyThoughts($limit: Int!) {
+      myThoughts(limit: $limit) {
+        \(thoughtFields)
+      }
+    }
+    """
 }
 
 struct SearchThoughtsData: Decodable {
@@ -263,4 +271,8 @@ struct CreateCollectionPayload: Decodable {
 
 struct AddThoughtToCollectionPayload: Decodable {
     let addThoughtToCollection: Collection
+}
+
+struct MyThoughtsData: Decodable {
+    let myThoughts: [Thought]
 }

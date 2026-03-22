@@ -218,6 +218,31 @@ func (repository *PostgresRepository) GetViewer() *User {
 	return userFromRow(row)
 }
 
+func (repository *PostgresRepository) ListThoughtsByAuthor(authorID string, limit int) ([]*Thought, error) {
+	ctx := context.Background()
+	var ids []string
+	if err := repository.db.NewSelect().
+		Model((*thoughtRow)(nil)).
+		Column("id").
+		Where("author_id = ?", authorID).
+		Order("updated_at DESC").
+		Limit(limit).
+		Scan(ctx, &ids); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []*Thought{}, nil
+		}
+		return nil, err
+	}
+	thoughts := make([]*Thought, 0, len(ids))
+	for _, thoughtID := range ids {
+		thought, err := repository.GetThought(thoughtID)
+		if err == nil {
+			thoughts = append(thoughts, thought)
+		}
+	}
+	return thoughts, nil
+}
+
 func (repository *PostgresRepository) CreateThought(authorID, content string) (*Thought, error) {
 	ctx := context.Background()
 	thoughtID := newUUID()

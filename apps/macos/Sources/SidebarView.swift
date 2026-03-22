@@ -26,6 +26,14 @@ struct SidebarView: View {
             }
             .buttonStyle(.bordered)
 
+            Button {
+                model.selectedSection = .map
+                Task { await model.loadPersonalThinkingMap() }
+            } label: {
+                Label("Thinking Map", systemImage: "point.3.filled.connected.trianglepath.dotted")
+            }
+            .buttonStyle(.bordered)
+
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(SidebarSection.allCases) { section in
                     Button {

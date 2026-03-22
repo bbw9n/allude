@@ -146,6 +146,23 @@ func TestDraftSuggestionsReturnsConceptsAndRelatedThoughts(t *testing.T) {
 	}
 }
 
+func TestMyThoughtsReturnsViewerThoughts(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+	_, _ = service.CreateThought("Stoicism helps me recover focus.")
+	_, _ = service.CreateThought("Boxing keeps the body aligned with discipline.")
+	if err := service.DrainJobs(16); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+
+	thoughts, err := service.MyThoughts(20)
+	if err != nil {
+		t.Fatalf("my thoughts: %v", err)
+	}
+	if len(thoughts) < 2 {
+		t.Fatalf("expected at least 2 thoughts, got %d", len(thoughts))
+	}
+}
+
 func TestGraphQLServerSupportsQueriesAndMutations(t *testing.T) {
 	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
 	server, err := apiGraphql.NewGraphQLServer(service)
@@ -204,5 +221,15 @@ func TestGraphQLServerSupportsQueriesAndMutations(t *testing.T) {
 	server.ServeHTTP(collectionsQueryResponse, collectionsQueryRequest)
 	if !bytes.Contains(collectionsQueryResponse.Body.Bytes(), []byte("collections")) {
 		t.Fatalf("expected collections payload, got %s", collectionsQueryResponse.Body.String())
+	}
+
+	myThoughtsBody, _ := json.Marshal(map[string]interface{}{
+		"query": "{ myThoughts(limit: 10) { id } }",
+	})
+	myThoughtsRequest := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(myThoughtsBody))
+	myThoughtsResponse := httptest.NewRecorder()
+	server.ServeHTTP(myThoughtsResponse, myThoughtsRequest)
+	if !bytes.Contains(myThoughtsResponse.Body.Bytes(), []byte("myThoughts")) {
+		t.Fatalf("expected myThoughts payload, got %s", myThoughtsResponse.Body.String())
 	}
 }

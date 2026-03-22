@@ -113,6 +113,29 @@ func (repository *InMemoryRepository) GetViewer() *User {
 	return cloneUser(repository.viewer)
 }
 
+func (repository *InMemoryRepository) ListThoughtsByAuthor(authorID string, limit int) ([]*Thought, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+
+	thoughts := make([]*Thought, 0)
+	for thoughtID, thought := range repository.thoughts {
+		if thought.AuthorID != authorID {
+			continue
+		}
+		hydrated, err := repository.hydrateThoughtLocked(thoughtID, false, false)
+		if err == nil {
+			thoughts = append(thoughts, hydrated)
+		}
+	}
+	sort.Slice(thoughts, func(i, j int) bool {
+		return thoughts[i].UpdatedAt > thoughts[j].UpdatedAt
+	})
+	if len(thoughts) > limit {
+		thoughts = thoughts[:limit]
+	}
+	return thoughts, nil
+}
+
 func (repository *InMemoryRepository) CreateThought(authorID, content string) (*Thought, error) {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()

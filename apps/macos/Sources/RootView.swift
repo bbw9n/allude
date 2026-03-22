@@ -29,6 +29,8 @@ struct RootView: View {
                     ConceptPageView()
                 case .collections:
                     CollectionsView()
+                case .map:
+                    PersonalThinkingMapView()
                 }
             }
             .overlay(alignment: .bottomTrailing) {

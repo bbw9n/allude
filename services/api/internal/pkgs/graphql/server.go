@@ -292,6 +292,15 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 					return server.service.Viewer(), nil
 				},
 			},
+			"myThoughts": &graphql.Field{
+				Type: graphql.NewList(thoughtType),
+				Args: graphql.FieldConfigArgument{
+					"limit": &graphql.ArgumentConfig{Type: graphql.Int},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.MyThoughts(optionalInt(p.Args, "limit", 40))
+				},
+			},
 			"thought": &graphql.Field{
 				Type: thoughtType,
 				Args: graphql.FieldConfigArgument{"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)}},

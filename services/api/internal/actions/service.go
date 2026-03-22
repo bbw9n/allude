@@ -38,6 +38,10 @@ func (service *Service) Viewer() *models.User {
 	return service.repository.GetViewer()
 }
 
+func (service *Service) MyThoughts(limit int) ([]*models.Thought, error) {
+	return service.repository.ListThoughtsByAuthor(shared.ViewerID, limit)
+}
+
 func (service *Service) CreateThought(content string) (*models.Thought, error) {
 	thought, err := service.repository.CreateThought(shared.ViewerID, strings.TrimSpace(content))
 	if err != nil {

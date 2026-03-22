@@ -130,12 +130,34 @@ struct GraphNeighborhood: Decodable, Hashable {
     let edges: [GraphEdge]
 }
 
+struct ThinkingMapConceptNode: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let count: Int
+    let x: Double
+    let y: Double
+    let thoughtIDs: [String]
+}
+
+struct ThinkingMapEdge: Identifiable, Hashable {
+    let id: String
+    let sourceID: String
+    let targetID: String
+    let weight: Double
+}
+
+struct PersonalThinkingMap: Hashable {
+    let concepts: [ThinkingMapConceptNode]
+    let edges: [ThinkingMapEdge]
+}
+
 enum SidebarSection: String, CaseIterable, Identifiable {
     case composer = "Composer"
     case telescope = "Telescope"
     case constellation = "Constellation"
     case concept = "Concept"
     case collections = "Collections"
+    case map = "Thinking Map"
 
     var id: String { rawValue }
 }
