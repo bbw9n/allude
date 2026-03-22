@@ -8,8 +8,10 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	actions "github.com/bbw9n/allude/services/api/internal/actions"
+	"github.com/bbw9n/allude/services/api/internal/domains/models"
 	"github.com/bbw9n/allude/services/api/internal/pkgs/ai"
 	pgstore "github.com/bbw9n/allude/services/api/internal/pkgs/storage/postgres"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -29,73 +31,102 @@ func TestPostgresRepositoryReadWritePath(t *testing.T) {
 	}
 	service := actions.NewService(repository, &ai.StubAIProvider{})
 
-	first, err := service.CreateThought("Stoicism helps founders hold discipline under pressure.")
-	if err != nil {
-		t.Fatalf("create first thought: %v", err)
-	}
-	second, err := service.CreateThought("Boxing turns discipline into a daily physical practice.")
-	if err != nil {
-		t.Fatalf("create second thought: %v", err)
-	}
-	if err := service.DrainJobs(24); err != nil {
-		t.Fatalf("drain jobs: %v", err)
+	step := func(label string, fn func() error) {
+		t.Helper()
+		start := time.Now()
+		t.Logf("starting %s", label)
+		if err := fn(); err != nil {
+			t.Fatalf("%s: %v", label, err)
+		}
+		t.Logf("finished %s in %s", label, time.Since(start))
 	}
 
-	hydrated, err := service.Thought(first.ID)
-	if err != nil {
-		t.Fatalf("fetch thought: %v", err)
-	}
+	var first, second *models.Thought
+	step("create first thought", func() error {
+		created, createErr := service.CreateThought("Stoicism helps founders hold discipline under pressure.")
+		first = created
+		return createErr
+	})
+	step("create second thought", func() error {
+		created, createErr := service.CreateThought("Boxing turns discipline into a daily physical practice.")
+		second = created
+		return createErr
+	})
+	step("drain jobs", func() error {
+		return service.DrainJobs(24)
+	})
+
+	var hydrated *models.Thought
+	step("fetch thought", func() error {
+		loaded, loadErr := service.Thought(first.ID)
+		hydrated = loaded
+		return loadErr
+	})
 	if hydrated.CurrentVersion == nil || len(hydrated.Concepts) == 0 {
 		t.Fatalf("expected hydrated thought with concepts, got %+v", hydrated)
 	}
 
-	search, err := service.SearchThoughts("discipline")
-	if err != nil {
-		t.Fatalf("search thoughts: %v", err)
-	}
+	var search *models.SearchThoughtsResult
+	step("search thoughts", func() error {
+		result, searchErr := service.SearchThoughts("discipline")
+		search = result
+		return searchErr
+	})
 	if len(search.Thoughts) == 0 {
 		t.Fatal("expected search results from postgres repository")
 	}
 
-	graph, err := service.Graph(first.ID, 2, 12)
-	if err != nil {
-		t.Fatalf("graph: %v", err)
-	}
+	var graph *models.GraphNeighborhood
+	step("graph", func() error {
+		result, graphErr := service.Graph(first.ID, 2, 12)
+		graph = result
+		return graphErr
+	})
 	if graph.Center == nil || graph.Center.Thought == nil {
 		t.Fatal("expected graph center")
 	}
 
-	concept, err := service.Concept("", "", "discipline")
-	if err != nil {
-		t.Fatalf("concept lookup: %v", err)
-	}
+	var concept *models.Concept
+	step("concept lookup", func() error {
+		result, conceptErr := service.Concept("", "", "discipline")
+		concept = result
+		return conceptErr
+	})
 	if concept == nil || concept.ThoughtCount == 0 {
 		t.Fatal("expected concept page data from postgres repository")
 	}
 
-	collection, err := service.CreateCollection("Founder Notes", "Important founder ideas")
-	if err != nil {
-		t.Fatalf("create collection: %v", err)
-	}
-	if _, err := service.AddThoughtToCollection(collection.ID, first.ID); err != nil {
-		t.Fatalf("add thought to collection: %v", err)
-	}
-	if _, err := service.RecordEngagement("thought", second.ID, "open", 4200); err != nil {
-		t.Fatalf("record engagement: %v", err)
-	}
+	var collection *models.Collection
+	step("create collection", func() error {
+		result, collectionErr := service.CreateCollection("Founder Notes", "Important founder ideas")
+		collection = result
+		return collectionErr
+	})
+	step("add thought to collection", func() error {
+		_, addErr := service.AddThoughtToCollection(collection.ID, first.ID)
+		return addErr
+	})
+	step("record engagement", func() error {
+		_, engagementErr := service.RecordEngagement("thought", second.ID, "open", 4200)
+		return engagementErr
+	})
 
-	home, err := service.Home(4)
-	if err != nil {
-		t.Fatalf("home: %v", err)
-	}
+	var home *models.HomePayload
+	step("home", func() error {
+		result, homeErr := service.Home(4)
+		home = result
+		return homeErr
+	})
 	if len(home.RecommendedThoughts) == 0 || len(home.Currents) == 0 {
 		t.Fatalf("expected personalized home payload, got %+v", home)
 	}
 
-	telescope, err := service.Telescope("connections between stoicism and discipline")
-	if err != nil {
-		t.Fatalf("telescope: %v", err)
-	}
+	var telescope *models.TelescopeResult
+	step("telescope", func() error {
+		result, telescopeErr := service.Telescope("connections between stoicism and discipline")
+		telescope = result
+		return telescopeErr
+	})
 	if telescope.Graph == nil || len(telescope.SeedThoughts) == 0 {
 		t.Fatalf("expected telescope payload, got %+v", telescope)
 	}

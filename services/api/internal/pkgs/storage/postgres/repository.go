@@ -422,6 +422,10 @@ func (repository *PostgresRepository) UpdateThought(thoughtID, content string) (
 }
 
 func (repository *PostgresRepository) GetThought(thoughtID string) (*Thought, error) {
+	return repository.getThought(thoughtID, true)
+}
+
+func (repository *PostgresRepository) getThought(thoughtID string, includeRelated bool) (*Thought, error) {
 	ctx := context.Background()
 	row := new(thoughtRow)
 	if err := repository.db.NewSelect().Model(row).Where("id = ?", thoughtID).Scan(ctx); err != nil {
@@ -441,7 +445,9 @@ func (repository *PostgresRepository) GetThought(thoughtID string) (*Thought, er
 	}
 	thought.Concepts, _ = repository.currentThoughtConcepts(row.CurrentVersionID)
 	thought.Links, _ = repository.currentThoughtLinks(thought.ID)
-	thought.RelatedThoughts, _ = repository.GetRelatedThoughts(thought.ID, 8)
+	if includeRelated {
+		thought.RelatedThoughts, _ = repository.GetRelatedThoughts(thought.ID, 8)
+	}
 	thought.Collections, _ = repository.collectionsForThought(thought.ID)
 	return thought, nil
 }
@@ -551,7 +557,7 @@ func (repository *PostgresRepository) SearchThoughts(query string, embedding []f
 	}
 	var ranked []scored
 	for _, thoughtID := range ids {
-		thought, err := repository.GetThought(thoughtID)
+		thought, err := repository.getThought(thoughtID, false)
 		if err != nil || thought.CurrentVersion == nil {
 			continue
 		}
@@ -601,9 +607,8 @@ func (repository *PostgresRepository) GetRelatedThoughts(thoughtID string, limit
 	}
 	var thoughts []*Thought
 	for _, relatedID := range relatedIDs {
-		thought, err := repository.GetThought(relatedID)
+		thought, err := repository.getThought(relatedID, false)
 		if err == nil {
-			thought.RelatedThoughts = nil
 			thoughts = append(thoughts, thought)
 		}
 	}
@@ -611,7 +616,7 @@ func (repository *PostgresRepository) GetRelatedThoughts(thoughtID string, limit
 }
 
 func (repository *PostgresRepository) GetGraphNeighborhood(centerThoughtID string, hopCount, limit int) (*GraphNeighborhood, error) {
-	thought, err := repository.GetThought(centerThoughtID)
+	thought, err := repository.getThought(centerThoughtID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +647,7 @@ func (repository *PostgresRepository) GetGraphNeighborhood(centerThoughtID strin
 			if _, exists := distances[nextID]; exists {
 				continue
 			}
-			nextThought, err := repository.GetThought(nextID)
+			nextThought, err := repository.getThought(nextID, false)
 			if err != nil {
 				continue
 			}
@@ -707,7 +712,7 @@ func (repository *PostgresRepository) GetConceptThoughts(conceptID string, limit
 	}
 	var thoughts []*Thought
 	for _, row := range rows {
-		thought, err := repository.GetThought(row.ID)
+		thought, err := repository.getThought(row.ID, false)
 		if err == nil {
 			thoughts = append(thoughts, thought)
 		}
@@ -1233,9 +1238,8 @@ func (repository *PostgresRepository) getConceptContradictionThoughts(conceptID 
 	}
 	result := make([]*Thought, 0, len(rows))
 	for _, row := range rows {
-		thought, getErr := repository.GetThought(row.ID)
+		thought, getErr := repository.getThought(row.ID, false)
 		if getErr == nil {
-			thought.RelatedThoughts = nil
 			result = append(result, thought)
 		}
 	}
