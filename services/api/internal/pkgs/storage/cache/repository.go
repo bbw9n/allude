@@ -33,6 +33,26 @@ func (repository *CachedRepository) GetViewer() *models.User {
 	return repository.next.GetViewer()
 }
 
+func (repository *CachedRepository) ListUserInterests(userID string, limit int) ([]*models.UserInterest, error) {
+	key := fmt.Sprintf("user-interests:%s:%d", userID, limit)
+	if value, ok := repository.get(key); ok {
+		return value.([]*models.UserInterest), nil
+	}
+	interests, err := repository.next.ListUserInterests(userID, limit)
+	if err == nil && interests != nil {
+		repository.set(key, interests)
+	}
+	return interests, err
+}
+
+func (repository *CachedRepository) AdjustUserInterest(userID, conceptID, source string, delta float64) error {
+	err := repository.next.AdjustUserInterest(userID, conceptID, source, delta)
+	if err == nil {
+		repository.invalidateAll()
+	}
+	return err
+}
+
 func (repository *CachedRepository) ListThoughtsByAuthor(authorID string, limit int) ([]*models.Thought, error) {
 	key := fmt.Sprintf("thoughts:author:%s:%d", authorID, limit)
 	if value, ok := repository.get(key); ok {

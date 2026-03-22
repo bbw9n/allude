@@ -48,6 +48,15 @@ type User struct {
 	UpdatedAt   string   `json:"updatedAt"`
 }
 
+type UserInterest struct {
+	UserID        string   `json:"userId"`
+	ConceptID     string   `json:"conceptId"`
+	AffinityScore float64  `json:"affinityScore"`
+	Source        string   `json:"source"`
+	UpdatedAt     string   `json:"updatedAt"`
+	Concept       *Concept `json:"concept,omitempty"`
+}
+
 type Thought struct {
 	ID               string            `json:"id"`
 	Author           *User             `json:"author,omitempty"`

@@ -214,6 +214,55 @@ func TestCurrentsAndHomeReturnDiscoveryPayloads(t *testing.T) {
 	}
 }
 
+func TestUserInterestsAndRankedHomeReflectBehavior(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+	stoic, _ := service.CreateThought("Stoicism helps founders keep discipline under pressure.")
+	creative, _ := service.CreateThought("Creativity needs boredom, silence, and recovery.")
+	if err := service.DrainJobs(16); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+
+	collection, err := service.CreateCollection("Founder Canon", "Thoughts worth keeping")
+	if err != nil {
+		t.Fatalf("create collection: %v", err)
+	}
+	if _, err := service.AddThoughtToCollection(collection.ID, stoic.ID); err != nil {
+		t.Fatalf("add thought to collection: %v", err)
+	}
+	if _, err := service.RecordEngagement("thought", stoic.ID, "open", 4200); err != nil {
+		t.Fatalf("record engagement: %v", err)
+	}
+	if _, err := service.Telescope("connections between stoicism and discipline"); err != nil {
+		t.Fatalf("telescope: %v", err)
+	}
+
+	interests, err := service.ViewerInterests(6)
+	if err != nil {
+		t.Fatalf("viewer interests: %v", err)
+	}
+	if len(interests) == 0 {
+		t.Fatal("expected personalized user interests")
+	}
+
+	home, err := service.Home(4)
+	if err != nil {
+		t.Fatalf("home: %v", err)
+	}
+	if len(home.RecommendedThoughts) == 0 {
+		t.Fatal("expected recommended thoughts")
+	}
+	if home.RecommendedThoughts[0].ID != stoic.ID {
+		t.Fatalf("expected personalized home to prefer stoic thought %s, got %s", stoic.ID, home.RecommendedThoughts[0].ID)
+	}
+	if len(home.Currents) == 0 {
+		t.Fatal("expected ranked currents")
+	}
+	if len(home.Viewer.Interests) == 0 {
+		t.Fatal("expected viewer interests to be populated from profile")
+	}
+	_ = creative
+}
+
 func TestTelescopeReturnsStructuredDiscoveryPayload(t *testing.T) {
 	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
 	_, _ = service.CreateThought("Stoicism and boxing both train discipline under discomfort.")

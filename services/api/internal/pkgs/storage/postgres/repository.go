@@ -38,6 +38,7 @@ const (
 )
 
 type User = models.User
+type UserInterest = models.UserInterest
 type Thought = models.Thought
 type ThoughtVersion = models.ThoughtVersion
 type Concept = models.Concept
@@ -65,14 +66,22 @@ type PostgresRepository struct {
 
 type userRow struct {
 	bun.BaseModel `bun:"table:users"`
-	ID            string   `bun:"id,pk"`
-	Username      string   `bun:"username"`
-	DisplayName   string   `bun:"display_name"`
-	Bio           string   `bun:"bio"`
-	AvatarURL     string   `bun:"avatar_url"`
-	Interests     []string `bun:"interests,array"`
-	CreatedAt     string   `bun:"created_at"`
-	UpdatedAt     string   `bun:"updated_at"`
+	ID            string `bun:"id,pk"`
+	Username      string `bun:"username"`
+	DisplayName   string `bun:"display_name"`
+	Bio           string `bun:"bio"`
+	AvatarURL     string `bun:"avatar_url"`
+	CreatedAt     string `bun:"created_at"`
+	UpdatedAt     string `bun:"updated_at"`
+}
+
+type userInterestRow struct {
+	bun.BaseModel `bun:"table:user_interests"`
+	UserID        string  `bun:"user_id,pk"`
+	ConceptID     string  `bun:"concept_id,pk"`
+	AffinityScore float64 `bun:"affinity_score"`
+	Source        string  `bun:"source"`
+	UpdatedAt     string  `bun:"updated_at"`
 }
 
 type thoughtRow struct {
@@ -215,7 +224,61 @@ func (repository *PostgresRepository) GetViewer() *User {
 	if err != nil {
 		return &User{ID: ViewerID, Username: "allude-dev", DisplayName: "Allude Dev"}
 	}
-	return userFromRow(row)
+	user := userFromRow(row)
+	interests, err := repository.ListUserInterests(user.ID, 6)
+	if err == nil {
+		user.Interests = user.Interests[:0]
+		for _, interest := range interests {
+			if interest.Concept != nil {
+				user.Interests = append(user.Interests, interest.Concept.CanonicalName)
+			}
+		}
+	}
+	return user
+}
+
+func (repository *PostgresRepository) ListUserInterests(userID string, limit int) ([]*UserInterest, error) {
+	ctx := context.Background()
+	rows := []*userInterestRow{}
+	if err := repository.db.NewSelect().
+		Model(&rows).
+		Where("user_id = ?", userID).
+		Order("affinity_score DESC, updated_at DESC").
+		Limit(limit).
+		Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []*UserInterest{}, nil
+		}
+		return nil, err
+	}
+	interests := make([]*UserInterest, 0, len(rows))
+	for _, row := range rows {
+		interest := &UserInterest{
+			UserID:        row.UserID,
+			ConceptID:     row.ConceptID,
+			AffinityScore: row.AffinityScore,
+			Source:        row.Source,
+			UpdatedAt:     row.UpdatedAt,
+		}
+		interest.Concept, _ = repository.GetConceptByID(row.ConceptID)
+		interests = append(interests, interest)
+	}
+	return interests, nil
+}
+
+func (repository *PostgresRepository) AdjustUserInterest(userID, conceptID, source string, delta float64) error {
+	ctx := context.Background()
+	_, err := repository.db.NewRaw(`
+		INSERT INTO user_interests (user_id, concept_id, affinity_score, source)
+		VALUES (?, ?, GREATEST(?, 0), ?)
+		ON CONFLICT (user_id, concept_id)
+		DO UPDATE SET
+			affinity_score = GREATEST(user_interests.affinity_score + EXCLUDED.affinity_score, 0),
+			source = EXCLUDED.source,
+			updated_at = NOW()`,
+		userID, conceptID, delta, source,
+	).Exec(ctx)
+	return err
 }
 
 func (repository *PostgresRepository) ListThoughtsByAuthor(authorID string, limit int) ([]*Thought, error) {
@@ -1046,7 +1109,7 @@ func userFromRow(row *userRow) *User {
 		DisplayName: row.DisplayName,
 		Bio:         row.Bio,
 		AvatarURL:   row.AvatarURL,
-		Interests:   append([]string(nil), row.Interests...),
+		Interests:   []string{},
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 	}

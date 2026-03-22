@@ -40,6 +40,10 @@ func (service *Service) Viewer() *models.User {
 	return service.repository.GetViewer()
 }
 
+func (service *Service) ViewerInterests(limit int) ([]*models.UserInterest, error) {
+	return service.repository.ListUserInterests(shared.ViewerID, limit)
+}
+
 func (service *Service) MyThoughts(limit int) ([]*models.Thought, error) {
 	return service.repository.ListThoughtsByAuthor(shared.ViewerID, limit)
 }
@@ -61,6 +65,11 @@ func (service *Service) Home(limit int) (*models.HomePayload, error) {
 	if err != nil {
 		return nil, err
 	}
+	profile, err := service.repository.ListUserInterests(shared.ViewerID, 12)
+	if err != nil {
+		return nil, err
+	}
+	currents = rankCurrentsForProfile(currents, profile)
 
 	recommendedThoughts := make([]*models.Thought, 0, limit)
 	seenThoughts := map[string]struct{}{}
@@ -83,6 +92,7 @@ func (service *Service) Home(limit int) (*models.HomePayload, error) {
 	if len(recommendedThoughts) < limit {
 		recentThoughts, err := service.repository.ListRecentThoughts(limit * 2)
 		if err == nil {
+			recentThoughts = rankThoughtsForProfile(recentThoughts, profile)
 			for _, thought := range recentThoughts {
 				if _, exists := seenThoughts[thought.ID]; exists {
 					continue
@@ -96,6 +106,7 @@ func (service *Service) Home(limit int) (*models.HomePayload, error) {
 		}
 	}
 
+	collections = rankCollectionsForProfile(collections, profile)
 	if len(collections) > limit {
 		collections = collections[:limit]
 	}
@@ -249,6 +260,9 @@ func (service *Service) Telescope(query string) (*models.TelescopeResult, error)
 	}
 	result.SuggestedJumps = buildTelescopeSuggestedJumps(trimmed, result.Intent, result.SeedConcepts, searchResult.Clusters, result.SeedThoughts)
 	result.Narrative = buildTelescopeNarrative(trimmed, result.Intent, result.SeedConcepts, result.SeedThoughts, searchResult.Clusters)
+	for _, concept := range result.SeedConcepts[:min(len(result.SeedConcepts), 3)] {
+		_ = service.repository.AdjustUserInterest(shared.ViewerID, concept.ID, "telescope_query", 0.18)
+	}
 	return result, nil
 }
 
@@ -274,7 +288,14 @@ func (service *Service) CreateCollection(title, description string) (*models.Col
 }
 
 func (service *Service) AddThoughtToCollection(collectionID, thoughtID string) (*models.Collection, error) {
-	return service.repository.AddThoughtToCollection(collectionID, thoughtID)
+	collection, err := service.repository.AddThoughtToCollection(collectionID, thoughtID)
+	if err != nil {
+		return nil, err
+	}
+	if thought, err := service.repository.GetThought(thoughtID); err == nil {
+		_ = service.applyThoughtInterestDelta(shared.ViewerID, thought, 0.9, "collection")
+	}
+	return collection, nil
 }
 
 func (service *Service) Collection(id string) (*models.Collection, error) {
@@ -286,13 +307,29 @@ func (service *Service) Collections() ([]*models.Collection, error) {
 }
 
 func (service *Service) RecordEngagement(entityType, entityID, actionType string, dwellMS int) (*models.EngagementEvent, error) {
-	return service.repository.RecordEngagement(&models.EngagementEvent{
+	event, err := service.repository.RecordEngagement(&models.EngagementEvent{
 		UserID:     shared.ViewerID,
 		EntityType: entityType,
 		EntityID:   entityID,
 		ActionType: actionType,
 		DwellMS:    dwellMS,
 	})
+	if err != nil {
+		return nil, err
+	}
+	switch entityType {
+	case "thought":
+		if thought, err := service.repository.GetThought(entityID); err == nil {
+			weight := 0.2
+			if dwellMS >= 3000 {
+				weight = 0.45
+			}
+			_ = service.applyThoughtInterestDelta(shared.ViewerID, thought, weight, "engagement")
+		}
+	case "concept":
+		_ = service.repository.AdjustUserInterest(shared.ViewerID, entityID, "engagement", 0.35)
+	}
+	return event, nil
 }
 
 func (service *Service) Jobs() []*models.Job {
@@ -340,6 +377,7 @@ func (service *Service) enrichThoughtVersion(versionID, thoughtID string) error 
 	if err != nil {
 		return nil
 	}
+	_ = service.applyThoughtInterestDelta(latestThought.AuthorID, latestThought, 1.2, "authored")
 	for _, concept := range latestThought.Concepts {
 		_, _ = service.repository.EnqueueJob(&models.Job{
 			Type:        models.JobRefreshConceptSummary,
@@ -739,6 +777,103 @@ func appendUniqueThoughtIDs(thoughts []*models.Thought, limit int) []string {
 		}
 	}
 	return ids
+}
+
+func (service *Service) applyThoughtInterestDelta(userID string, thought *models.Thought, baseDelta float64, source string) error {
+	if userID == "" || thought == nil {
+		return nil
+	}
+	for index, concept := range thought.Concepts {
+		weight := baseDelta / float64(index+1)
+		if err := service.repository.AdjustUserInterest(userID, concept.ID, source, weight); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func profileAffinityMap(profile []*models.UserInterest) map[string]float64 {
+	affinity := map[string]float64{}
+	for _, interest := range profile {
+		affinity[interest.ConceptID] = interest.AffinityScore
+	}
+	return affinity
+}
+
+func rankThoughtsForProfile(thoughts []*models.Thought, profile []*models.UserInterest) []*models.Thought {
+	affinity := profileAffinityMap(profile)
+	type rankedThought struct {
+		thought *models.Thought
+		score   float64
+	}
+	ranked := make([]rankedThought, 0, len(thoughts))
+	for _, thought := range thoughts {
+		score := semantics.QualityScore(thought)
+		for _, concept := range thought.Concepts {
+			score += affinity[concept.ID]
+		}
+		ranked = append(ranked, rankedThought{thought: thought, score: score})
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].score == ranked[j].score {
+			return ranked[i].thought.UpdatedAt > ranked[j].thought.UpdatedAt
+		}
+		return ranked[i].score > ranked[j].score
+	})
+	result := make([]*models.Thought, 0, len(ranked))
+	for _, item := range ranked {
+		result = append(result, item.thought)
+	}
+	return result
+}
+
+func rankCurrentsForProfile(currents []*models.IdeaCurrent, profile []*models.UserInterest) []*models.IdeaCurrent {
+	affinity := profileAffinityMap(profile)
+	ranked := append([]*models.IdeaCurrent(nil), currents...)
+	sort.Slice(ranked, func(i, j int) bool {
+		left := ranked[i].QualityScore + ranked[i].FreshnessScore + currentAffinity(ranked[i], affinity)
+		right := ranked[j].QualityScore + ranked[j].FreshnessScore + currentAffinity(ranked[j], affinity)
+		if left == right {
+			return ranked[i].UpdatedAt > ranked[j].UpdatedAt
+		}
+		return left > right
+	})
+	return ranked
+}
+
+func rankCollectionsForProfile(collections []*models.Collection, profile []*models.UserInterest) []*models.Collection {
+	affinity := profileAffinityMap(profile)
+	ranked := append([]*models.Collection(nil), collections...)
+	sort.Slice(ranked, func(i, j int) bool {
+		left := collectionAffinity(ranked[i], affinity)
+		right := collectionAffinity(ranked[j], affinity)
+		if left == right {
+			return ranked[i].UpdatedAt > ranked[j].UpdatedAt
+		}
+		return left > right
+	})
+	return ranked
+}
+
+func currentAffinity(current *models.IdeaCurrent, affinity map[string]float64) float64 {
+	score := 0.0
+	for _, concept := range current.Concepts {
+		score += affinity[concept.ID]
+	}
+	return score
+}
+
+func collectionAffinity(collection *models.Collection, affinity map[string]float64) float64 {
+	score := 0.0
+	for _, item := range collection.Items {
+		if item.Thought == nil {
+			continue
+		}
+		for _, concept := range item.Thought.Concepts {
+			score += affinity[concept.ID]
+		}
+	}
+	return score
 }
 
 func buildReframes(concepts []string, supportingThoughts, counterThoughts []*models.Thought) []string {

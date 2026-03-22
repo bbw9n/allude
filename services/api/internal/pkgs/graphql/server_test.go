@@ -37,7 +37,7 @@ func TestGraphQLQueriesCoverPrimaryReadSurface(t *testing.T) {
 		t.Fatalf("add thought to collection: %v", err)
 	}
 
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query { me { id username } viewer { id username } }", nil), "me", "viewer")
+	assertGraphQLHasData(t, executeGraphQL(t, server, "query { me { id username interests } viewer { id username interests } }", nil), "me", "viewer")
 	assertGraphQLHasData(t, executeGraphQL(t, server, "query { myThoughts(limit: 10) { id currentVersion { content } } }", nil), "myThoughts")
 	assertGraphQLHasData(t, executeGraphQL(t, server, "query Thought($id: ID!) { thought(id: $id) { id concepts { canonicalName } relatedThoughts { id } versions { id version } } }", map[string]interface{}{"id": first.ID}), "thought")
 	assertGraphQLHasData(t, executeGraphQL(t, server, "query ConceptByName($name: String!) { concept(name: $name) { id canonicalName topThoughts { id } relatedConcepts { id } thoughtCount } }", map[string]interface{}{"name": "discipline"}), "concept")
@@ -47,7 +47,7 @@ func TestGraphQLQueriesCoverPrimaryReadSurface(t *testing.T) {
 	assertGraphQLHasData(t, executeGraphQL(t, server, "query Telescope($query: String!) { telescope(query: $query) { query intent narrative seedConcepts { id canonicalName } seedThoughts { id } graph { center { thought { id } } } clusters { label } suggestedJumps { label query } relatedCurrents { id } } }", map[string]interface{}{"query": "connections between stoicism and discipline"}), "telescope")
 	assertGraphQLHasData(t, executeGraphQL(t, server, "query Graph($thoughtId: ID!) { graph(thoughtId: $thoughtId, hopCount: 2, limit: 12) { center { thought { id } } nodes { thought { id } } edges { link { id relationType } } } }", map[string]interface{}{"thoughtId": first.ID}), "graph")
 	assertGraphQLHasData(t, executeGraphQL(t, server, "query Collection($id: ID!) { collection(id: $id) { id title items { thought { id } } } collections { id title } }", map[string]interface{}{"id": collection.ID}), "collection", "collections")
-	assertGraphQLHasData(t, executeGraphQL(t, server, "query Discovery { currents(limit: 4) { id title thoughts { id } concepts { id } } home(limit: 4) { viewer { id } currents { id } recommendedThoughts { id } recommendedCollections { id } } }", nil), "currents", "home")
+	assertGraphQLHasData(t, executeGraphQL(t, server, "query Discovery { currents(limit: 4) { id title thoughts { id } concepts { id } } home(limit: 4) { viewer { id interests } currents { id } recommendedThoughts { id } recommendedCollections { id } } }", nil), "currents", "home")
 
 	relatedPayload := executeGraphQL(t, server, "query Thought($id: ID!) { thought(id: $id) { relatedThoughts { id } } }", map[string]interface{}{"id": first.ID})
 	if !bytes.Contains(relatedPayload, []byte(second.ID)) {

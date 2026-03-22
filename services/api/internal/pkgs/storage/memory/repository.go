@@ -49,6 +49,7 @@ type ConceptLink = models.ConceptLink
 type Collection = models.Collection
 type CollectionItem = models.CollectionItem
 type EngagementEvent = models.EngagementEvent
+type UserInterest = models.UserInterest
 type GraphNode = models.GraphNode
 type GraphEdge = models.GraphEdge
 type GraphNeighborhood = models.GraphNeighborhood
@@ -74,6 +75,7 @@ type InMemoryRepository struct {
 	collections       map[string]*Collection
 	collectionItems   map[string][]*CollectionItem
 	engagementEvents  map[string]*EngagementEvent
+	userInterests     map[string]map[string]*UserInterest
 	jobs              map[string]*Job
 	jobOrder          []string
 }
@@ -102,6 +104,7 @@ func NewInMemoryRepository() *InMemoryRepository {
 		collections:       map[string]*Collection{},
 		collectionItems:   map[string][]*CollectionItem{},
 		engagementEvents:  map[string]*EngagementEvent{},
+		userInterests:     map[string]map[string]*UserInterest{},
 		jobs:              map[string]*Job{},
 		jobOrder:          []string{},
 	}
@@ -110,7 +113,50 @@ func NewInMemoryRepository() *InMemoryRepository {
 func (repository *InMemoryRepository) GetViewer() *User {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-	return cloneUser(repository.viewer)
+	viewer := cloneUser(repository.viewer)
+	for _, interest := range repository.listUserInterestsLocked(viewer.ID, 6) {
+		if interest.Concept != nil {
+			viewer.Interests = append(viewer.Interests, interest.Concept.CanonicalName)
+		}
+	}
+	if len(viewer.Interests) == 0 {
+		viewer.Interests = append([]string(nil), repository.viewer.Interests...)
+	}
+	return viewer
+}
+
+func (repository *InMemoryRepository) ListUserInterests(userID string, limit int) ([]*UserInterest, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	return repository.listUserInterestsLocked(userID, limit), nil
+}
+
+func (repository *InMemoryRepository) AdjustUserInterest(userID, conceptID, source string, delta float64) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if repository.userInterests[userID] == nil {
+		repository.userInterests[userID] = map[string]*UserInterest{}
+	}
+	entry := repository.userInterests[userID][conceptID]
+	if entry == nil {
+		entry = &UserInterest{
+			UserID:    userID,
+			ConceptID: conceptID,
+			Source:    source,
+			UpdatedAt: nowISO(),
+		}
+		repository.userInterests[userID][conceptID] = entry
+	}
+	entry.AffinityScore += delta
+	if entry.AffinityScore < 0 {
+		entry.AffinityScore = 0
+	}
+	entry.Source = source
+	entry.UpdatedAt = nowISO()
+	if concept, exists := repository.concepts[conceptID]; exists {
+		entry.Concept = cloneConceptBase(concept)
+	}
+	return nil
 }
 
 func (repository *InMemoryRepository) ListThoughtsByAuthor(authorID string, limit int) ([]*Thought, error) {
@@ -913,6 +959,15 @@ func cloneUser(user *User) *User {
 	return &clone
 }
 
+func cloneUserInterest(interest *UserInterest) *UserInterest {
+	if interest == nil {
+		return nil
+	}
+	clone := *interest
+	clone.Concept = cloneConceptBase(interest.Concept)
+	return &clone
+}
+
 func cloneVersion(version *ThoughtVersion) *ThoughtVersion {
 	if version == nil {
 		return nil
@@ -937,6 +992,23 @@ func cloneConceptBase(concept *Concept) *Concept {
 		CreatedAt:     concept.CreatedAt,
 		UpdatedAt:     concept.UpdatedAt,
 	}
+}
+
+func (repository *InMemoryRepository) listUserInterestsLocked(userID string, limit int) []*UserInterest {
+	entries := make([]*UserInterest, 0)
+	for _, interest := range repository.userInterests[userID] {
+		entries = append(entries, cloneUserInterest(interest))
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].AffinityScore == entries[j].AffinityScore {
+			return entries[i].UpdatedAt > entries[j].UpdatedAt
+		}
+		return entries[i].AffinityScore > entries[j].AffinityScore
+	})
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+	return entries
 }
 
 func (repository *InMemoryRepository) thoughtCountForConceptLocked(conceptID string) int {

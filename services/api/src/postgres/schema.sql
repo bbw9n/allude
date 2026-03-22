@@ -51,6 +51,15 @@ CREATE TABLE concepts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE user_interests (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  concept_id UUID NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+  affinity_score DOUBLE PRECISION NOT NULL,
+  source TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, concept_id)
+);
+
 CREATE TABLE concept_aliases (
   id UUID PRIMARY KEY,
   concept_id UUID NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
@@ -154,6 +163,7 @@ ON CONFLICT (username) DO NOTHING;
 
 CREATE INDEX thought_versions_embedding_idx ON thought_versions USING ivfflat (embedding vector_cosine_ops);
 CREATE INDEX concepts_embedding_idx ON concepts USING ivfflat (embedding vector_cosine_ops);
+CREATE INDEX user_interests_user_idx ON user_interests (user_id, affinity_score DESC);
 CREATE INDEX thought_links_source_idx ON thought_links (source_thought_id);
 CREATE INDEX thought_links_target_idx ON thought_links (target_thought_id);
 CREATE INDEX concept_links_source_idx ON concept_links (source_concept_id);
