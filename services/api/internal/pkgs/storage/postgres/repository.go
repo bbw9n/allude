@@ -243,7 +243,7 @@ func (repository *PostgresRepository) ListUserInterests(userID string, limit int
 	if err := repository.db.NewSelect().
 		Model(&rows).
 		Where("user_id = ?", userID).
-		Order("affinity_score DESC, updated_at DESC").
+		Order("affinity_score DESC", "updated_at DESC").
 		Limit(limit).
 		Scan(ctx); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
