@@ -335,33 +335,26 @@ func (repository *PostgresRepository) CreateThought(authorID, content string) (*
 	thoughtID := newUUID()
 	versionID := newUUID()
 	err := repository.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		thought := &thoughtRow{
-			ID:               thoughtID,
-			AuthorID:         authorID,
-			Status:           "active",
-			Visibility:       "public",
-			CurrentVersionID: versionID,
-			ProcessingStatus: string(ProcessingPending),
-			ProcessingNotes:  []string{"Queued for enrichment"},
-		}
-		version := &thoughtVersionRow{
-			ID:               versionID,
-			ThoughtID:        thoughtID,
-			VersionNo:        1,
-			Content:          content,
-			Language:         "en",
-			TokenCount:       len(strings.Fields(content)),
-			ProcessingStatus: string(ProcessingPending),
-			ProcessingNotes:  []string{"Queued for enrichment"},
-		}
-		if _, err := tx.NewInsert().Model(thought).
-			Column("id", "author_id", "status", "visibility", "current_version_id", "processing_status", "processing_notes").
-			Exec(ctx); err != nil {
+		if _, err := tx.NewRaw(`
+			INSERT INTO thoughts (id, author_id, status, visibility, processing_status, processing_notes)
+			VALUES (?, ?, 'active', 'public', ?, ?)`,
+			thoughtID, authorID, string(ProcessingPending), []string{"Queued for enrichment"},
+		).Exec(ctx); err != nil {
 			return err
 		}
-		if _, err := tx.NewInsert().Model(version).
-			Column("id", "thought_id", "version_no", "content", "language", "token_count", "processing_status", "processing_notes").
-			Exec(ctx); err != nil {
+		if _, err := tx.NewRaw(`
+			INSERT INTO thought_versions (id, thought_id, version_no, content, language, token_count, processing_status, processing_notes)
+			VALUES (?, ?, 1, ?, 'en', ?, ?, ?)`,
+			versionID, thoughtID, content, len(strings.Fields(content)), string(ProcessingPending), []string{"Queued for enrichment"},
+		).Exec(ctx); err != nil {
+			return err
+		}
+		if _, err := tx.NewRaw(`
+			UPDATE thoughts
+			SET current_version_id = ?, updated_at = NOW()
+			WHERE id = ?`,
+			versionID, thoughtID,
+		).Exec(ctx); err != nil {
 			return err
 		}
 		return nil
@@ -380,19 +373,11 @@ func (repository *PostgresRepository) UpdateThought(thoughtID, content string) (
 	}
 	versionID := newUUID()
 	err = repository.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		version := &thoughtVersionRow{
-			ID:               versionID,
-			ThoughtID:        thoughtID,
-			VersionNo:        len(versions) + 1,
-			Content:          content,
-			Language:         "en",
-			TokenCount:       len(strings.Fields(content)),
-			ProcessingStatus: string(ProcessingPending),
-			ProcessingNotes:  []string{"Queued for enrichment"},
-		}
-		if _, err := tx.NewInsert().Model(version).
-			Column("id", "thought_id", "version_no", "content", "language", "token_count", "processing_status", "processing_notes").
-			Exec(ctx); err != nil {
+		if _, err := tx.NewRaw(`
+			INSERT INTO thought_versions (id, thought_id, version_no, content, language, token_count, processing_status, processing_notes)
+			VALUES (?, ?, ?, ?, 'en', ?, ?, ?)`,
+			versionID, thoughtID, len(versions)+1, content, len(strings.Fields(content)), string(ProcessingPending), []string{"Queued for enrichment"},
+		).Exec(ctx); err != nil {
 			return err
 		}
 		_, err := tx.NewUpdate().
