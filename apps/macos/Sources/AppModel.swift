@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -304,6 +305,13 @@ final class AppModel: ObservableObject {
     func selectCapture(_ capture: CaptureItem) {
         selectedCapture = capture
         selectedSection = .inbox
+    }
+
+    func prefillCaptureFromClipboard() {
+        let clipboard = NSPasteboard.general.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !clipboard.isEmpty else { return }
+        captureDraft = clipboard
     }
 
     func createCollection() async {
