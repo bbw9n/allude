@@ -11,6 +11,9 @@ struct AlludeMacOSApp: App {
                 .frame(minWidth: 1220, minHeight: 780)
         }
         .windowStyle(.hiddenTitleBar)
+        .commands {
+            CaptureCommands(model: appModel)
+        }
 
         WindowGroup("Quick Capture", id: "quick-capture") {
             QuickCaptureWindowView()
@@ -24,10 +27,6 @@ struct AlludeMacOSApp: App {
             QuickCaptureMenuView()
                 .environmentObject(appModel)
                 .frame(width: 360)
-        }
-
-        Commands {
-            CaptureCommands(model: appModel)
         }
     }
 }
