@@ -126,6 +126,9 @@ private struct InboxDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Capture Detail")
                 .font(.system(size: 24, weight: .bold))
+            if model.isRefreshingCapturePreview {
+                ProgressView()
+            }
 
             if let capture {
                 Text(capture.sourceTitle ?? "Untitled Capture")
@@ -173,6 +176,65 @@ private struct InboxDetailView: View {
                                 .background(Color.white.opacity(0.62), in: RoundedRectangle(cornerRadius: 16))
                         }
                         .buttonStyle(.plain)
+                    }
+                }
+
+                if let preview = capture.preview {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("AI Preview")
+                            .font(.system(size: 14, weight: .bold))
+
+                        if !preview.relatedConcepts.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Related Concepts")
+                                    .font(.system(size: 12, weight: .semibold))
+                                FlowLayout(items: preview.relatedConcepts)
+                            }
+                        }
+
+                        if !preview.supportingThoughts.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Adjacent Thoughts")
+                                    .font(.system(size: 12, weight: .semibold))
+                                ForEach(preview.supportingThoughts.prefix(3)) { thought in
+                                    Button {
+                                        model.selectThought(thought)
+                                        model.selectedSection = .constellation
+                                    } label: {
+                                        Text(thought.currentVersion.content)
+                                            .font(.system(size: 12, weight: .medium, design: .serif))
+                                            .lineLimit(2)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(12)
+                                            .background(Color.white.opacity(0.62), in: RoundedRectangle(cornerRadius: 14))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+
+                        if !preview.reframes.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Possible Angles")
+                                    .font(.system(size: 12, weight: .semibold))
+                                ForEach(preview.reframes, id: \.self) { reframe in
+                                    Text("• \(reframe)")
+                                        .font(.system(size: 12))
+                                }
+                            }
+                        }
+
+                        if !preview.notes.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Notes")
+                                    .font(.system(size: 12, weight: .semibold))
+                                ForEach(preview.notes, id: \.self) { note in
+                                    Text("• \(note)")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                     }
                 }
             } else {

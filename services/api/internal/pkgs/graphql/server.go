@@ -67,6 +67,7 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 	var captureType *graphql.Object
 	var ideaCurrentType *graphql.Object
 	var telescopeResultType *graphql.Object
+	var draftSuggestionsType *graphql.Object
 
 	userType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "User",
@@ -226,8 +227,14 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 				"status":            &graphql.Field{Type: graphql.String},
 				"promotedThoughtId": &graphql.Field{Type: graphql.ID},
 				"promotedThought":   &graphql.Field{Type: thoughtType},
-				"createdAt":         &graphql.Field{Type: graphql.String},
-				"updatedAt":         &graphql.Field{Type: graphql.String},
+				"preview": &graphql.Field{
+					Type: draftSuggestionsType,
+					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+						return server.service.CapturePreview(p.Source.(*models.CaptureItem).ID)
+					},
+				},
+				"createdAt": &graphql.Field{Type: graphql.String},
+				"updatedAt": &graphql.Field{Type: graphql.String},
 			}
 		}),
 	})
@@ -290,7 +297,7 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 		},
 	})
 
-	draftSuggestionsType := graphql.NewObject(graphql.ObjectConfig{
+	draftSuggestionsType = graphql.NewObject(graphql.ObjectConfig{
 		Name: "DraftSuggestions",
 		Fields: graphql.Fields{
 			"relatedConcepts":    &graphql.Field{Type: graphql.NewList(graphql.String)},

@@ -340,6 +340,25 @@ enum AlludeAPI {
     }
     """
 
+    static let capture = """
+    query Capture($id: ID!) {
+      capture(id: $id) {
+        \(captureFields)
+        preview {
+          relatedConcepts
+          reframes
+          notes
+          supportingThoughts {
+            \(thoughtFields)
+          }
+          counterThoughts {
+            \(thoughtFields)
+          }
+        }
+      }
+    }
+    """
+
     static let createCapture = """
     mutation CreateCapture($content: String!, $sourceType: String, $sourceTitle: String, $sourceUrl: String, $sourceApp: String) {
       createCapture(content: $content, sourceType: $sourceType, sourceTitle: $sourceTitle, sourceUrl: $sourceUrl, sourceApp: $sourceApp) {
@@ -415,6 +434,10 @@ struct MyThoughtsData: Decodable {
 
 struct InboxData: Decodable {
     let inbox: [CaptureItem]
+}
+
+struct CaptureData: Decodable {
+    let capture: CaptureItem?
 }
 
 struct CreateCapturePayload: Decodable {

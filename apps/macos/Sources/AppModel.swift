@@ -34,6 +34,7 @@ final class AppModel: ObservableObject {
     @Published var isRefreshingDraftSuggestions = false
     @Published var isRefreshingCollections = false
     @Published var isRefreshingInbox = false
+    @Published var isRefreshingCapturePreview = false
     @Published var isSavingCollection = false
     @Published var isSavingCapture = false
     @Published var isRefreshingThinkingMap = false
@@ -305,6 +306,28 @@ final class AppModel: ObservableObject {
     func selectCapture(_ capture: CaptureItem) {
         selectedCapture = capture
         selectedSection = .inbox
+        Task {
+            await loadCaptureDetail(id: capture.id)
+        }
+    }
+
+    func loadCaptureDetail(id: String) async {
+        isRefreshingCapturePreview = true
+        defer { isRefreshingCapturePreview = false }
+
+        do {
+            let data = try await client.send(
+                query: AlludeAPI.capture,
+                variables: ["id": id],
+                data: CaptureData.self
+            )
+            if let capture = data.capture {
+                selectedCapture = capture
+                captures = captures.map { $0.id == capture.id ? capture : $0 }
+            }
+        } catch {
+            errorMessage = "Unable to load capture preview."
+        }
     }
 
     func prefillCaptureFromClipboard() {

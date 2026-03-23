@@ -119,6 +119,12 @@ func TestPostgresGraphQLE2ECaptureInboxFlow(t *testing.T) {
 	})
 	assertGraphQLRootKeys(t, archivePayload, "archiveCapture")
 	assertPayloadContains(t, archivePayload, "archived")
+
+	previewPayload := h.exec(t, queryCapturePreview, map[string]interface{}{
+		"id": captureID,
+	})
+	assertGraphQLRootKeys(t, previewPayload, "capture")
+	assertPayloadContains(t, previewPayload, "preview")
 }
 
 func newGraphQLHarness(t *testing.T) *graphQLHarness {

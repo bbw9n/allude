@@ -93,6 +93,7 @@ struct CaptureItem: Decodable, Hashable, Identifiable, Sendable {
     let status: String
     let promotedThoughtId: String?
     let promotedThought: Thought?
+    let preview: DraftSuggestions?
     let createdAt: String
     let updatedAt: String
 }

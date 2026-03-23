@@ -111,6 +111,7 @@ type CaptureItem {
   status: String
   promotedThoughtId: ID
   promotedThought: Thought
+  preview: DraftSuggestions
   createdAt: String
   updatedAt: String
 }

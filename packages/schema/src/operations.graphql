@@ -89,6 +89,25 @@ query Inbox {
   }
 }
 
+query Capture($id: ID!) {
+  capture(id: $id) {
+    id
+    content
+    status
+    preview {
+      relatedConcepts
+      reframes
+      notes
+      supportingThoughts {
+        id
+      }
+      counterThoughts {
+        id
+      }
+    }
+  }
+}
+
 query ThoughtDetail($id: ID!) {
   thought(id: $id) {
     id

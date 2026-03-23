@@ -133,6 +133,12 @@ func TestGraphQLCaptureInboxFlow(t *testing.T) {
 	})
 	assertGraphQLHasData(t, archivePayload, "archiveCapture")
 	assertPayloadContains(t, archivePayload, "archived")
+
+	previewPayload := h.exec(t, queryCapturePreview, map[string]interface{}{
+		"id": captureID,
+	})
+	assertGraphQLHasData(t, previewPayload, "capture")
+	assertPayloadContains(t, previewPayload, "preview")
 }
 
 func TestGraphQLCurrentsExposeMaterializedDiscoveryFields(t *testing.T) {

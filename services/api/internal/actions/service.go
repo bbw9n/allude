@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -62,6 +63,48 @@ func (service *Service) Inbox(limit int) ([]*models.CaptureItem, error) {
 
 func (service *Service) Capture(id string) (*models.CaptureItem, error) {
 	return service.repository.GetCapture(id)
+}
+
+func (service *Service) CapturePreview(captureID string) (*models.DraftSuggestions, error) {
+	capture, err := service.repository.GetCapture(captureID)
+	if err != nil {
+		return nil, err
+	}
+	suggestions, err := service.DraftSuggestions(capture.Content, capture.PromotedThoughtID)
+	if err != nil {
+		return nil, err
+	}
+	if capture.SourceTitle != "" {
+		suggestions.Notes = append([]string{"Source: " + capture.SourceTitle}, suggestions.Notes...)
+		suggestions.RelatedConcepts = append(titleKeywords(capture.SourceTitle), suggestions.RelatedConcepts...)
+		suggestions.Reframes = append(suggestions.Reframes, fmt.Sprintf("What does %q sharpen or complicate here?", capture.SourceTitle))
+	}
+	if capture.SourceApp != "" {
+		if capture.SourceTitle == "" {
+			suggestions.Notes = append([]string{"Captured from " + capture.SourceApp}, suggestions.Notes...)
+		}
+		suggestions.Notes = append(suggestions.Notes, fmt.Sprintf("%s may frame how this idea landed.", capture.SourceApp))
+	}
+	host := sourceHost(capture.SourceURL)
+	if host != "" {
+		suggestions.Notes = append(suggestions.Notes, "Captured from "+host+".")
+		suggestions.RelatedConcepts = append(sourceHostKeywords(host), suggestions.RelatedConcepts...)
+		if capture.SourceType == models.CaptureSourceLink {
+			suggestions.Reframes = append(suggestions.Reframes, "What claim or angle is hidden behind the linked source?")
+		}
+	} else if capture.SourceURL != "" {
+		suggestions.Notes = append(suggestions.Notes, "Source URL available for follow-up.")
+	}
+	if capture.SourceType == models.CaptureSourceQuote {
+		suggestions.Reframes = append(suggestions.Reframes, "Is this quote evidence, a prompt, or the seed of a stronger argument?")
+	}
+	suggestions.RelatedConcepts = uniqueLimitedStrings(suggestions.RelatedConcepts, 8)
+	suggestions.Reframes = uniqueLimitedStrings(suggestions.Reframes, 6)
+	if capture.SourceTitle == "" && capture.SourceApp != "" && len(suggestions.Notes) == 0 {
+		suggestions.Notes = append([]string{"Captured from " + capture.SourceApp}, suggestions.Notes...)
+	}
+	suggestions.Notes = uniqueLimitedStrings(suggestions.Notes, 8)
+	return suggestions, nil
 }
 
 func (service *Service) MyThoughts(limit int) ([]*models.Thought, error) {
@@ -168,10 +211,13 @@ func (service *Service) CreateCapture(content string, sourceType models.CaptureS
 	if trimmed == "" {
 		return nil, errors.New("capture content is required")
 	}
+	sourceTitle = strings.TrimSpace(sourceTitle)
+	sourceURL = strings.TrimSpace(sourceURL)
+	sourceApp = strings.TrimSpace(sourceApp)
 	if sourceType == "" {
-		sourceType = models.CaptureSourceNote
+		sourceType = inferCaptureSourceType(trimmed, sourceURL)
 	}
-	return service.repository.CreateCapture(shared.ViewerID, trimmed, sourceType, strings.TrimSpace(sourceTitle), strings.TrimSpace(sourceURL), strings.TrimSpace(sourceApp))
+	return service.repository.CreateCapture(shared.ViewerID, trimmed, sourceType, sourceTitle, sourceURL, sourceApp)
 }
 
 func (service *Service) ArchiveCapture(captureID string) (*models.CaptureItem, error) {
@@ -537,6 +583,88 @@ func uniqueLimitedStrings(values []string, limit int) []string {
 		}
 	}
 	return result
+}
+
+func inferCaptureSourceType(content, sourceURL string) models.CaptureSourceType {
+	if strings.TrimSpace(sourceURL) != "" {
+		return models.CaptureSourceLink
+	}
+	lower := strings.ToLower(content)
+	if strings.Contains(lower, "http://") || strings.Contains(lower, "https://") {
+		return models.CaptureSourceLink
+	}
+	if strings.Contains(content, "\"") || strings.Contains(content, "“") || strings.Contains(content, "”") {
+		return models.CaptureSourceQuote
+	}
+	return models.CaptureSourceNote
+}
+
+func sourceHost(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.ToLower(parsed.Hostname()), "www.")
+}
+
+func sourceHostKeywords(host string) []string {
+	parts := strings.FieldsFunc(host, func(r rune) bool {
+		return r == '.' || r == '-' || r == '_'
+	})
+	return compactKeywords(parts, 2)
+}
+
+func titleKeywords(title string) []string {
+	replacer := strings.NewReplacer(
+		".", " ",
+		",", " ",
+		":", " ",
+		";", " ",
+		"!", " ",
+		"?", " ",
+		"(", " ",
+		")", " ",
+		"[", " ",
+		"]", " ",
+		"{", " ",
+		"}", " ",
+		"\"", " ",
+		"“", " ",
+		"”", " ",
+		"'", " ",
+	)
+	clean := replacer.Replace(strings.ToLower(title))
+	return compactKeywords(strings.Fields(clean), 3)
+}
+
+func compactKeywords(parts []string, limit int) []string {
+	stopwords := map[string]struct{}{
+		"the":   {},
+		"and":   {},
+		"for":   {},
+		"with":  {},
+		"from":  {},
+		"that":  {},
+		"this":  {},
+		"into":  {},
+		"about": {},
+		"your":  {},
+	}
+	keywords := make([]string, 0, min(len(parts), limit))
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.ToLower(part))
+		if len(part) < 4 {
+			continue
+		}
+		if _, blocked := stopwords[part]; blocked {
+			continue
+		}
+		keywords = append(keywords, strings.ToUpper(part[:1])+part[1:])
+		if len(keywords) == limit {
+			break
+		}
+	}
+	return uniqueLimitedStrings(keywords, limit)
 }
 
 func buildIdeaCurrents(thoughts []*models.Thought, limit int) []*models.IdeaCurrent {

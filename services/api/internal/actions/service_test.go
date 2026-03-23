@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	actions "github.com/bbw9n/allude/services/api/internal/actions"
@@ -314,6 +315,87 @@ func TestCaptureInboxArchiveAndPromoteFlow(t *testing.T) {
 			t.Fatal("expected archived capture to disappear from inbox")
 		}
 	}
+}
+
+func TestCapturePreviewReturnsConceptsAndNotes(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+	_, _ = service.CreateThought("Stoicism helps founders build discipline under pressure.")
+	if err := service.DrainJobs(8); err != nil {
+		t.Fatalf("drain jobs: %v", err)
+	}
+
+	capture, err := service.CreateCapture(
+		"Stoicism might help founders recover judgment under pressure.",
+		models.CaptureSourceQuote,
+		"Founder Quote",
+		"https://example.com/founders",
+		"Safari",
+	)
+	if err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	preview, err := service.CapturePreview(capture.ID)
+	if err != nil {
+		t.Fatalf("capture preview: %v", err)
+	}
+	if len(preview.RelatedConcepts) == 0 {
+		t.Fatal("expected related concepts in capture preview")
+	}
+	if len(preview.Notes) == 0 {
+		t.Fatal("expected notes in capture preview")
+	}
+	if len(preview.Reframes) == 0 {
+		t.Fatal("expected reframes in capture preview")
+	}
+	if !containsString(preview.Notes, "Source: Founder Quote") {
+		t.Fatalf("expected source title note, got %+v", preview.Notes)
+	}
+	if !containsString(preview.Notes, "Captured from example.com.") {
+		t.Fatalf("expected source host note, got %+v", preview.Notes)
+	}
+	if !containsString(preview.RelatedConcepts, "Founder") {
+		t.Fatalf("expected title-driven concept, got %+v", preview.RelatedConcepts)
+	}
+	if !containsSubstring(preview.Reframes, "seed of a stronger argument") {
+		t.Fatalf("expected quote-aware reframe, got %+v", preview.Reframes)
+	}
+}
+
+func TestCreateCaptureInfersLinkSourceType(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+
+	capture, err := service.CreateCapture(
+		"Read this later",
+		"",
+		"Interesting essay",
+		"https://allude.app/essay",
+		"Safari",
+	)
+	if err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+	if capture.SourceType != models.CaptureSourceLink {
+		t.Fatalf("expected inferred link source type, got %s", capture.SourceType)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSubstring(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCreateThoughtQueuesRefreshCurrentsDuringEnrichment(t *testing.T) {

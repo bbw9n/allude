@@ -350,6 +350,26 @@ query Inbox {
   }
 }`
 
+	queryCapturePreview = `
+query Capture($id: ID!) {
+  capture(id: $id) {
+    id
+    content
+    status
+    preview {
+      relatedConcepts
+      reframes
+      notes
+      supportingThoughts {
+        id
+      }
+      counterThoughts {
+        id
+      }
+    }
+  }
+}`
+
 	queryCurrentsRich = `
 query Discovery {
   currents(limit: 4) {
