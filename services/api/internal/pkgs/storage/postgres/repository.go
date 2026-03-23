@@ -947,17 +947,17 @@ func (repository *PostgresRepository) ListCapturesByAuthor(authorID string, stat
 
 func (repository *PostgresRepository) UpdateCaptureStatus(captureID string, status CaptureStatus, promotedThoughtID string) (*CaptureItem, error) {
 	ctx := context.Background()
-	row := &captureItemRow{
-		ID:                captureID,
-		Status:            string(status),
-		PromotedThoughtID: promotedThoughtID,
-	}
-	if _, err := repository.db.NewUpdate().
-		Model(row).
-		Column("status", "promoted_thought_id").
+	query := repository.db.NewUpdate().
+		Model((*captureItemRow)(nil)).
+		Set("status = ?", string(status)).
 		Set("updated_at = NOW()").
-		Where("id = ?", captureID).
-		Exec(ctx); err != nil {
+		Where("id = ?", captureID)
+	if promotedThoughtID == "" {
+		query = query.Set("promoted_thought_id = NULL")
+	} else {
+		query = query.Set("promoted_thought_id = ?", promotedThoughtID)
+	}
+	if _, err := query.Exec(ctx); err != nil {
 		return nil, err
 	}
 	return repository.GetCapture(captureID)
