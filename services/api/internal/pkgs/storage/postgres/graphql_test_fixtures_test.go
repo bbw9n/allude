@@ -38,6 +38,19 @@ mutation CreateCollection($title: String!, $description: String) {
   }
 }`
 
+	mutationCreateCapture = `
+mutation CreateCapture($content: String!, $sourceType: String, $sourceTitle: String, $sourceUrl: String, $sourceApp: String) {
+  createCapture(content: $content, sourceType: $sourceType, sourceTitle: $sourceTitle, sourceUrl: $sourceUrl, sourceApp: $sourceApp) {
+    id
+    content
+    sourceType
+    sourceTitle
+    sourceUrl
+    sourceApp
+    status
+  }
+}`
+
 	mutationAddThoughtToCollection = `
 mutation AddThoughtToCollection($collectionId: ID!, $thoughtId: ID!) {
   addThoughtToCollection(collectionId: $collectionId, thoughtId: $thoughtId) {
@@ -57,6 +70,26 @@ mutation RecordEngagement($entityType: String!, $entityId: ID!, $actionType: Str
     entityId
     actionType
     dwellMs
+  }
+}`
+
+	mutationArchiveCapture = `
+mutation ArchiveCapture($captureId: ID!) {
+  archiveCapture(captureId: $captureId) {
+    id
+    status
+  }
+}`
+
+	mutationPromoteCapture = `
+mutation PromoteCapture($captureId: ID!) {
+  promoteCapture(captureId: $captureId) {
+    id
+    status
+    promotedThoughtId
+    promotedThought {
+      id
+    }
   }
 }`
 
@@ -248,6 +281,20 @@ query ViewerAndHome($collectionId: ID!) {
   collections {
     id
     title
+  }
+}`
+
+	queryInbox = `
+query Inbox {
+  inbox(limit: 20) {
+    id
+    content
+    sourceType
+    sourceTitle
+    sourceUrl
+    sourceApp
+    status
+    promotedThoughtId
   }
 }`
 )

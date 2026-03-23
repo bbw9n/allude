@@ -26,6 +26,10 @@ type Repository interface {
 	AddThoughtToCollection(collectionID, thoughtID string) (*models.Collection, error)
 	GetCollection(id string) (*models.Collection, error)
 	ListCollections() ([]*models.Collection, error)
+	CreateCapture(authorID, content string, sourceType models.CaptureSourceType, sourceTitle, sourceURL, sourceApp string) (*models.CaptureItem, error)
+	GetCapture(id string) (*models.CaptureItem, error)
+	ListCapturesByAuthor(authorID string, status models.CaptureStatus, limit int) ([]*models.CaptureItem, error)
+	UpdateCaptureStatus(captureID string, status models.CaptureStatus, promotedThoughtID string) (*models.CaptureItem, error)
 	ListIdeaCurrents(limit int) ([]*models.IdeaCurrent, error)
 	ReplaceIdeaCurrents(currents []*models.IdeaCurrent) error
 	RecordEngagement(event *models.EngagementEvent) (*models.EngagementEvent, error)

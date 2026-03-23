@@ -8,6 +8,8 @@ final class AppModel: ObservableObject {
     @Published var thoughts: [Thought] = []
     @Published var selectedThought: Thought?
     @Published var selectedConcept: Concept?
+    @Published var captures: [CaptureItem] = []
+    @Published var selectedCapture: CaptureItem?
     @Published var collections: [Collection] = []
     @Published var selectedCollection: Collection?
     @Published var personalMapThoughts: [Thought] = []
@@ -19,6 +21,10 @@ final class AppModel: ObservableObject {
     @Published var selectedSearchClusterLabel: String?
     @Published var draftSuggestions = DraftSuggestions.empty
     @Published var draft = ""
+    @Published var captureDraft = ""
+    @Published var captureSourceTitle = ""
+    @Published var captureSourceURL = ""
+    @Published var captureSourceApp = ""
     @Published var newCollectionTitle = ""
     @Published var newCollectionDescription = ""
     @Published var isSaving = false
@@ -26,7 +32,9 @@ final class AppModel: ObservableObject {
     @Published var isRefreshingGraph = false
     @Published var isRefreshingDraftSuggestions = false
     @Published var isRefreshingCollections = false
+    @Published var isRefreshingInbox = false
     @Published var isSavingCollection = false
+    @Published var isSavingCapture = false
     @Published var isRefreshingThinkingMap = false
     @Published var errorMessage: String?
 
@@ -176,6 +184,126 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = "Unable to load collections."
         }
+    }
+
+    func loadInbox() async {
+        isRefreshingInbox = true
+        defer { isRefreshingInbox = false }
+
+        do {
+            let data = try await client.send(
+                query: AlludeAPI.inbox,
+                variables: ["limit": 50],
+                data: InboxData.self
+            )
+            captures = data.inbox
+            if selectedCapture == nil {
+                selectedCapture = data.inbox.first
+            } else if let selectedCapture {
+                self.selectedCapture = data.inbox.first(where: { $0.id == selectedCapture.id }) ?? data.inbox.first
+            }
+        } catch {
+            errorMessage = "Unable to load inbox."
+        }
+    }
+
+    func createCapture() async {
+        let content = captureDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+
+        isSavingCapture = true
+        defer { isSavingCapture = false }
+
+        do {
+            let data = try await client.send(
+                query: AlludeAPI.createCapture,
+                variables: [
+                    "content": AnyEncodable(content),
+                    "sourceType": AnyEncodable(inferredCaptureSourceType(from: content)),
+                    "sourceTitle": AnyEncodable(captureSourceTitle.isEmpty ? nil as String? : captureSourceTitle),
+                    "sourceUrl": AnyEncodable(captureSourceURL.isEmpty ? nil as String? : captureSourceURL),
+                    "sourceApp": AnyEncodable(captureSourceApp.isEmpty ? nil as String? : captureSourceApp)
+                ],
+                data: CreateCapturePayload.self
+            )
+            captureDraft = ""
+            captureSourceTitle = ""
+            captureSourceURL = ""
+            captureSourceApp = ""
+            selectedCapture = data.createCapture
+            await loadInbox()
+        } catch {
+            errorMessage = "Unable to save capture."
+        }
+    }
+
+    func archiveSelectedCapture() async {
+        guard let selectedCapture else { return }
+        await archiveCapture(selectedCapture)
+    }
+
+    func archiveCapture(_ capture: CaptureItem) async {
+        isSavingCapture = true
+        defer { isSavingCapture = false }
+
+        do {
+            _ = try await client.send(
+                query: AlludeAPI.archiveCapture,
+                variables: ["captureId": capture.id],
+                data: ArchiveCapturePayload.self
+            )
+            if self.selectedCapture?.id == capture.id {
+                self.selectedCapture = nil
+            }
+            await loadInbox()
+        } catch {
+            errorMessage = "Unable to archive capture."
+        }
+    }
+
+    func promoteSelectedCapture() async {
+        guard let selectedCapture else { return }
+        await promoteCapture(selectedCapture)
+    }
+
+    func promoteCapture(_ capture: CaptureItem) async {
+        isSavingCapture = true
+        defer { isSavingCapture = false }
+
+        do {
+            let data = try await client.send(
+                query: AlludeAPI.promoteCapture,
+                variables: ["captureId": capture.id],
+                data: PromoteCapturePayload.self
+            )
+            selectedCapture = data.promoteCapture
+            if let thought = data.promoteCapture.promotedThought {
+                selectedThought = thought
+                thoughts = mergeThoughts([thought], into: thoughts)
+                selectedSection = .constellation
+                await refreshSelectedThought()
+            } else if let thoughtID = data.promoteCapture.promotedThoughtId {
+                let thoughtData = try await client.send(
+                    query: AlludeAPI.thought,
+                    variables: ["id": thoughtID],
+                    data: ThoughtData.self
+                )
+                if let thought = thoughtData.thought {
+                    selectedThought = thought
+                    thoughts = mergeThoughts([thought], into: thoughts)
+                    selectedSection = .constellation
+                    await refreshSelectedThought()
+                }
+            }
+            await loadInbox()
+        } catch {
+            errorMessage = "Unable to promote capture."
+        }
+    }
+
+    func selectCapture(_ capture: CaptureItem) {
+        selectedCapture = capture
+        selectedSection = .inbox
     }
 
     func createCollection() async {
@@ -452,5 +580,15 @@ final class AppModel: ObservableObject {
 
     var telescopeGraph: GraphNeighborhood? {
         telescopeResult.graph ?? graph
+    }
+
+    private func inferredCaptureSourceType(from content: String) -> String {
+        if content.contains("http://") || content.contains("https://") {
+            return "link"
+        }
+        if content.contains("\"") || content.contains("“") {
+            return "quote"
+        }
+        return "note"
     }
 }

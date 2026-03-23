@@ -64,6 +64,7 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 	var thoughtType *graphql.Object
 	var conceptType *graphql.Object
 	var collectionType *graphql.Object
+	var captureType *graphql.Object
 	var ideaCurrentType *graphql.Object
 	var telescopeResultType *graphql.Object
 
@@ -209,6 +210,26 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 			"createdAt":   &graphql.Field{Type: graphql.String},
 			"updatedAt":   &graphql.Field{Type: graphql.String},
 		},
+	})
+
+	captureType = graphql.NewObject(graphql.ObjectConfig{
+		Name: "CaptureItem",
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			return graphql.Fields{
+				"id":                &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+				"authorId":          &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+				"content":           &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+				"sourceType":        &graphql.Field{Type: graphql.String},
+				"sourceTitle":       &graphql.Field{Type: graphql.String},
+				"sourceUrl":         &graphql.Field{Type: graphql.String},
+				"sourceApp":         &graphql.Field{Type: graphql.String},
+				"status":            &graphql.Field{Type: graphql.String},
+				"promotedThoughtId": &graphql.Field{Type: graphql.ID},
+				"promotedThought":   &graphql.Field{Type: thoughtType},
+				"createdAt":         &graphql.Field{Type: graphql.String},
+				"updatedAt":         &graphql.Field{Type: graphql.String},
+			}
+		}),
 	})
 
 	thoughtType = graphql.NewObject(graphql.ObjectConfig{
@@ -370,6 +391,24 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					return server.service.MyThoughts(optionalInt(p.Args, "limit", 40))
+				},
+			},
+			"inbox": &graphql.Field{
+				Type: graphql.NewList(captureType),
+				Args: graphql.FieldConfigArgument{
+					"limit": &graphql.ArgumentConfig{Type: graphql.Int},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.Inbox(optionalInt(p.Args, "limit", 40))
+				},
+			},
+			"capture": &graphql.Field{
+				Type: captureType,
+				Args: graphql.FieldConfigArgument{
+					"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.Capture(p.Args["id"].(string))
 				},
 			},
 			"viewerInterests": &graphql.Field{
@@ -574,6 +613,43 @@ func (server *GraphQLServer) buildSchema() (graphql.Schema, error) {
 						p.Args["actionType"].(string),
 						optionalInt(p.Args, "dwellMs", 0),
 					)
+				},
+			},
+			"createCapture": &graphql.Field{
+				Type: captureType,
+				Args: graphql.FieldConfigArgument{
+					"content":     &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+					"sourceType":  &graphql.ArgumentConfig{Type: graphql.String},
+					"sourceTitle": &graphql.ArgumentConfig{Type: graphql.String},
+					"sourceUrl":   &graphql.ArgumentConfig{Type: graphql.String},
+					"sourceApp":   &graphql.ArgumentConfig{Type: graphql.String},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.CreateCapture(
+						p.Args["content"].(string),
+						models.CaptureSourceType(optionalString(p.Args, "sourceType")),
+						optionalString(p.Args, "sourceTitle"),
+						optionalString(p.Args, "sourceUrl"),
+						optionalString(p.Args, "sourceApp"),
+					)
+				},
+			},
+			"archiveCapture": &graphql.Field{
+				Type: captureType,
+				Args: graphql.FieldConfigArgument{
+					"captureId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.ArchiveCapture(p.Args["captureId"].(string))
+				},
+			},
+			"promoteCapture": &graphql.Field{
+				Type: captureType,
+				Args: graphql.FieldConfigArgument{
+					"captureId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return server.service.PromoteCapture(p.Args["captureId"].(string))
 				},
 			},
 		},

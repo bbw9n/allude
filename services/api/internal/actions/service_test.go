@@ -242,6 +242,80 @@ func TestThoughtEnrichmentQueuesAndBuildsMaterializedCurrents(t *testing.T) {
 	}
 }
 
+func TestCaptureInboxArchiveAndPromoteFlow(t *testing.T) {
+	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
+
+	capture, err := service.CreateCapture(
+		"Clip this quote about boredom and creativity.",
+		models.CaptureSourceQuote,
+		"On Boredom",
+		"https://example.com/boredom",
+		"Safari",
+	)
+	if err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	inbox, err := service.Inbox(20)
+	if err != nil {
+		t.Fatalf("list inbox: %v", err)
+	}
+	if len(inbox) != 1 || inbox[0].ID != capture.ID {
+		t.Fatalf("expected capture in inbox, got %+v", inbox)
+	}
+
+	promoted, err := service.PromoteCapture(capture.ID)
+	if err != nil {
+		t.Fatalf("promote capture: %v", err)
+	}
+	if promoted.Status != models.CapturePromoted {
+		t.Fatalf("expected promoted status, got %s", promoted.Status)
+	}
+	if promoted.PromotedThoughtID == "" {
+		t.Fatal("expected promoted thought id")
+	}
+
+	if err := service.DrainJobs(8); err != nil {
+		t.Fatalf("drain jobs after promote: %v", err)
+	}
+
+	promotedThought, err := service.Thought(promoted.PromotedThoughtID)
+	if err != nil {
+		t.Fatalf("fetch promoted thought: %v", err)
+	}
+	if promotedThought.CurrentVersion == nil || promotedThought.CurrentVersion.Content == "" {
+		t.Fatalf("expected promoted thought content, got %+v", promotedThought)
+	}
+
+	archivedCapture, err := service.CreateCapture(
+		"Archive me",
+		models.CaptureSourceNote,
+		"",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("create archive capture: %v", err)
+	}
+	archived, err := service.ArchiveCapture(archivedCapture.ID)
+	if err != nil {
+		t.Fatalf("archive capture: %v", err)
+	}
+	if archived.Status != models.CaptureArchived {
+		t.Fatalf("expected archived status, got %s", archived.Status)
+	}
+
+	inbox, err = service.Inbox(20)
+	if err != nil {
+		t.Fatalf("refresh inbox: %v", err)
+	}
+	for _, item := range inbox {
+		if item.ID == archivedCapture.ID {
+			t.Fatal("expected archived capture to disappear from inbox")
+		}
+	}
+}
+
 func TestCreateThoughtQueuesRefreshCurrentsDuringEnrichment(t *testing.T) {
 	service := actions.NewService(memstore.NewInMemoryRepository(), &ai.StubAIProvider{})
 	_, err := service.CreateThought("Boredom can become a precondition for creativity.")

@@ -14,6 +14,18 @@ mutation CreateThought($content: String!) {
   }
 }
 
+mutation CreateCapture($content: String!, $sourceType: String, $sourceTitle: String, $sourceUrl: String, $sourceApp: String) {
+  createCapture(content: $content, sourceType: $sourceType, sourceTitle: $sourceTitle, sourceUrl: $sourceUrl, sourceApp: $sourceApp) {
+    id
+    content
+    sourceType
+    sourceTitle
+    sourceUrl
+    sourceApp
+    status
+  }
+}
+
 mutation EditThought($thoughtId: ID!, $content: String!) {
   editThought(thoughtId: $thoughtId, content: $content) {
     id
@@ -61,6 +73,19 @@ query Viewer {
       canonicalName
       slug
     }
+  }
+}
+
+query Inbox {
+  inbox(limit: 20) {
+    id
+    content
+    sourceType
+    sourceTitle
+    sourceUrl
+    sourceApp
+    status
+    promotedThoughtId
   }
 }
 
@@ -206,5 +231,23 @@ mutation RecordEngagement($entityType: String!, $entityId: ID!, $actionType: Str
     entityId
     actionType
     dwellMs
+  }
+}
+
+mutation ArchiveCapture($captureId: ID!) {
+  archiveCapture(captureId: $captureId) {
+    id
+    status
+  }
+}
+
+mutation PromoteCapture($captureId: ID!) {
+  promoteCapture(captureId: $captureId) {
+    id
+    status
+    promotedThoughtId
+    promotedThought {
+      id
+    }
   }
 }

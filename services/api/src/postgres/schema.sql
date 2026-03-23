@@ -130,6 +130,20 @@ CREATE TABLE engagement_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE capture_items (
+  id UUID PRIMARY KEY,
+  author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_title TEXT,
+  source_url TEXT,
+  source_app TEXT,
+  status TEXT NOT NULL DEFAULT 'inbox',
+  promoted_thought_id UUID REFERENCES thoughts(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE idea_currents (
   id UUID PRIMARY KEY,
   title TEXT NOT NULL,
@@ -191,5 +205,6 @@ CREATE INDEX thought_versions_thought_id_idx ON thought_versions (thought_id);
 CREATE INDEX thought_concepts_concept_idx ON thought_concepts (concept_id);
 CREATE INDEX collection_items_thought_idx ON collection_items (thought_id);
 CREATE INDEX engagement_events_entity_idx ON engagement_events (entity_type, entity_id);
+CREATE INDEX capture_items_author_status_idx ON capture_items (author_id, status, updated_at DESC);
 CREATE INDEX idea_current_membership_entity_idx ON idea_current_membership (entity_type, entity_id);
 CREATE INDEX jobs_status_visible_idx ON jobs (status, visible_at);

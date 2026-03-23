@@ -56,6 +56,14 @@ func (service *Service) RelatedThoughts(thoughtID string, limit int) ([]*models.
 	return service.repository.GetRelatedThoughts(thoughtID, limit)
 }
 
+func (service *Service) Inbox(limit int) ([]*models.CaptureItem, error) {
+	return service.repository.ListCapturesByAuthor(shared.ViewerID, models.CaptureInbox, limit)
+}
+
+func (service *Service) Capture(id string) (*models.CaptureItem, error) {
+	return service.repository.GetCapture(id)
+}
+
 func (service *Service) MyThoughts(limit int) ([]*models.Thought, error) {
 	return service.repository.ListThoughtsByAuthor(shared.ViewerID, limit)
 }
@@ -153,6 +161,36 @@ func (service *Service) CreateThought(content string) (*models.Thought, error) {
 		},
 	})
 	return thought, err
+}
+
+func (service *Service) CreateCapture(content string, sourceType models.CaptureSourceType, sourceTitle, sourceURL, sourceApp string) (*models.CaptureItem, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return nil, errors.New("capture content is required")
+	}
+	if sourceType == "" {
+		sourceType = models.CaptureSourceNote
+	}
+	return service.repository.CreateCapture(shared.ViewerID, trimmed, sourceType, strings.TrimSpace(sourceTitle), strings.TrimSpace(sourceURL), strings.TrimSpace(sourceApp))
+}
+
+func (service *Service) ArchiveCapture(captureID string) (*models.CaptureItem, error) {
+	return service.repository.UpdateCaptureStatus(captureID, models.CaptureArchived, "")
+}
+
+func (service *Service) PromoteCapture(captureID string) (*models.CaptureItem, error) {
+	capture, err := service.repository.GetCapture(captureID)
+	if err != nil {
+		return nil, err
+	}
+	if capture.PromotedThoughtID != "" {
+		return capture, nil
+	}
+	thought, err := service.CreateThought(capture.Content)
+	if err != nil {
+		return nil, err
+	}
+	return service.repository.UpdateCaptureStatus(captureID, models.CapturePromoted, thought.ID)
 }
 
 func (service *Service) EditThought(thoughtID, content string) (*models.Thought, error) {

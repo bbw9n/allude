@@ -1,6 +1,23 @@
 import Foundation
 
 enum AlludeAPI {
+    static let captureFields = """
+    id
+    authorId
+    content
+    sourceType
+    sourceTitle
+    sourceUrl
+    sourceApp
+    status
+    promotedThoughtId
+    createdAt
+    updatedAt
+    promotedThought {
+      \(thoughtFields)
+    }
+    """
+
     static let collectionFields = """
     id
     curatorId
@@ -314,6 +331,38 @@ enum AlludeAPI {
       }
     }
     """
+
+    static let inbox = """
+    query Inbox($limit: Int!) {
+      inbox(limit: $limit) {
+        \(captureFields)
+      }
+    }
+    """
+
+    static let createCapture = """
+    mutation CreateCapture($content: String!, $sourceType: String, $sourceTitle: String, $sourceUrl: String, $sourceApp: String) {
+      createCapture(content: $content, sourceType: $sourceType, sourceTitle: $sourceTitle, sourceUrl: $sourceUrl, sourceApp: $sourceApp) {
+        \(captureFields)
+      }
+    }
+    """
+
+    static let archiveCapture = """
+    mutation ArchiveCapture($captureId: ID!) {
+      archiveCapture(captureId: $captureId) {
+        \(captureFields)
+      }
+    }
+    """
+
+    static let promoteCapture = """
+    mutation PromoteCapture($captureId: ID!) {
+      promoteCapture(captureId: $captureId) {
+        \(captureFields)
+      }
+    }
+    """
 }
 
 struct SearchThoughtsData: Decodable {
@@ -362,4 +411,20 @@ struct AddThoughtToCollectionPayload: Decodable {
 
 struct MyThoughtsData: Decodable {
     let myThoughts: [Thought]
+}
+
+struct InboxData: Decodable {
+    let inbox: [CaptureItem]
+}
+
+struct CreateCapturePayload: Decodable {
+    let createCapture: CaptureItem
+}
+
+struct ArchiveCapturePayload: Decodable {
+    let archiveCapture: CaptureItem
+}
+
+struct PromoteCapturePayload: Decodable {
+    let promoteCapture: CaptureItem
 }

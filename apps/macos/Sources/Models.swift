@@ -82,6 +82,21 @@ struct Collection: Decodable, Hashable, Identifiable, Sendable {
     let updatedAt: String
 }
 
+struct CaptureItem: Decodable, Hashable, Identifiable, Sendable {
+    let id: String
+    let authorId: String
+    let content: String
+    let sourceType: String?
+    let sourceTitle: String?
+    let sourceUrl: String?
+    let sourceApp: String?
+    let status: String
+    let promotedThoughtId: String?
+    let promotedThought: Thought?
+    let createdAt: String
+    let updatedAt: String
+}
+
 struct IdeaCurrent: Decodable, Hashable, Identifiable, Sendable {
     let id: String
     let title: String
@@ -197,6 +212,7 @@ struct TelescopeResult: Decodable, Hashable, Sendable {
 
 enum SidebarSection: String, CaseIterable, Identifiable, Sendable {
     case composer = "Composer"
+    case inbox = "Inbox"
     case telescope = "Telescope"
     case constellation = "Constellation"
     case concept = "Concept"

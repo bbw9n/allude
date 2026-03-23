@@ -49,6 +49,9 @@ type ConceptLink = models.ConceptLink
 type Collection = models.Collection
 type CollectionItem = models.CollectionItem
 type EngagementEvent = models.EngagementEvent
+type CaptureItem = models.CaptureItem
+type CaptureStatus = models.CaptureStatus
+type CaptureSourceType = models.CaptureSourceType
 type UserInterest = models.UserInterest
 type GraphNode = models.GraphNode
 type GraphEdge = models.GraphEdge
@@ -75,6 +78,7 @@ type InMemoryRepository struct {
 	collections       map[string]*Collection
 	collectionItems   map[string][]*CollectionItem
 	engagementEvents  map[string]*EngagementEvent
+	captures          map[string]*CaptureItem
 	ideaCurrents      map[string]*models.IdeaCurrent
 	userInterests     map[string]map[string]*UserInterest
 	jobs              map[string]*Job
@@ -105,6 +109,7 @@ func NewInMemoryRepository() *InMemoryRepository {
 		collections:       map[string]*Collection{},
 		collectionItems:   map[string][]*CollectionItem{},
 		engagementEvents:  map[string]*EngagementEvent{},
+		captures:          map[string]*CaptureItem{},
 		ideaCurrents:      map[string]*models.IdeaCurrent{},
 		userInterests:     map[string]map[string]*UserInterest{},
 		jobs:              map[string]*Job{},
@@ -638,6 +643,71 @@ func (repository *InMemoryRepository) ListCollections() ([]*Collection, error) {
 	return collections, nil
 }
 
+func (repository *InMemoryRepository) CreateCapture(authorID, content string, sourceType CaptureSourceType, sourceTitle, sourceURL, sourceApp string) (*CaptureItem, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	now := nowISO()
+	capture := &CaptureItem{
+		ID:          createID("capture"),
+		AuthorID:    authorID,
+		Content:     content,
+		SourceType:  sourceType,
+		SourceTitle: sourceTitle,
+		SourceURL:   sourceURL,
+		SourceApp:   sourceApp,
+		Status:      models.CaptureInbox,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	repository.captures[capture.ID] = capture
+	return cloneCaptureItem(capture), nil
+}
+
+func (repository *InMemoryRepository) GetCapture(id string) (*CaptureItem, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	capture, exists := repository.captures[id]
+	if !exists {
+		return nil, errors.New("capture not found")
+	}
+	return repository.hydrateCaptureLocked(capture), nil
+}
+
+func (repository *InMemoryRepository) ListCapturesByAuthor(authorID string, status CaptureStatus, limit int) ([]*CaptureItem, error) {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	captures := make([]*CaptureItem, 0)
+	for _, capture := range repository.captures {
+		if capture.AuthorID != authorID {
+			continue
+		}
+		if status != "" && capture.Status != status {
+			continue
+		}
+		captures = append(captures, repository.hydrateCaptureLocked(capture))
+	}
+	sort.Slice(captures, func(i, j int) bool {
+		return captures[i].UpdatedAt > captures[j].UpdatedAt
+	})
+	if len(captures) > limit {
+		captures = captures[:limit]
+	}
+	return captures, nil
+}
+
+func (repository *InMemoryRepository) UpdateCaptureStatus(captureID string, status CaptureStatus, promotedThoughtID string) (*CaptureItem, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	capture, exists := repository.captures[captureID]
+	if !exists {
+		return nil, errors.New("capture not found")
+	}
+	capture.Status = status
+	capture.PromotedThoughtID = promotedThoughtID
+	capture.UpdatedAt = nowISO()
+	return repository.hydrateCaptureLocked(capture), nil
+}
+
 func (repository *InMemoryRepository) ListIdeaCurrents(limit int) ([]*models.IdeaCurrent, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
@@ -759,6 +829,16 @@ func (repository *InMemoryRepository) ListJobs() []*Job {
 		jobs = append(jobs, cloneJob(repository.jobs[id]))
 	}
 	return jobs
+}
+
+func (repository *InMemoryRepository) hydrateCaptureLocked(capture *CaptureItem) *CaptureItem {
+	hydrated := cloneCaptureItem(capture)
+	if hydrated.PromotedThoughtID != "" {
+		if thought, err := repository.hydrateThoughtLocked(hydrated.PromotedThoughtID, false, false); err == nil {
+			hydrated.PromotedThought = thought
+		}
+	}
+	return hydrated
 }
 
 func (repository *InMemoryRepository) hydrateThoughtLocked(thoughtID string, includeVersions, includeRelated bool) (*Thought, error) {
@@ -1133,6 +1213,30 @@ func cloneIdeaCurrent(current *models.IdeaCurrent) *models.IdeaCurrent {
 		clone.Thoughts = append(clone.Thoughts, &copied)
 	}
 	return &clone
+}
+
+func cloneCaptureItem(capture *CaptureItem) *CaptureItem {
+	if capture == nil {
+		return nil
+	}
+	cloned := *capture
+	if capture.PromotedThought != nil {
+		cloned.PromotedThought = cloneThoughtBase(capture.PromotedThought)
+	}
+	return &cloned
+}
+
+func cloneThoughtBase(thought *Thought) *Thought {
+	if thought == nil {
+		return nil
+	}
+	cloned := *thought
+	cloned.Versions = nil
+	cloned.Concepts = nil
+	cloned.RelatedThoughts = nil
+	cloned.Collections = nil
+	cloned.Links = nil
+	return &cloned
 }
 
 func cloneLink(link *ThoughtLink) *ThoughtLink {

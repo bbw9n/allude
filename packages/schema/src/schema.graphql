@@ -100,6 +100,21 @@ type Collection {
   updatedAt: String
 }
 
+type CaptureItem {
+  id: ID!
+  authorId: ID!
+  content: String!
+  sourceType: String
+  sourceTitle: String
+  sourceUrl: String
+  sourceApp: String
+  status: String
+  promotedThoughtId: ID
+  promotedThought: Thought
+  createdAt: String
+  updatedAt: String
+}
+
 type Thought {
   id: ID!
   author: User
@@ -206,6 +221,8 @@ type Query {
   me: User
   viewer: User
   myThoughts(limit: Int = 40): [Thought!]
+  inbox(limit: Int = 40): [CaptureItem!]
+  capture(id: ID!): CaptureItem
   viewerInterests(limit: Int = 12): [UserInterest!]
   currents(limit: Int = 6): [IdeaCurrent!]
   home(limit: Int = 6): HomePayload
@@ -224,9 +241,12 @@ type Query {
 
 type Mutation {
   createThought(content: String!): Thought!
+  createCapture(content: String!, sourceType: String, sourceTitle: String, sourceUrl: String, sourceApp: String): CaptureItem!
   editThought(thoughtId: ID!, content: String!): Thought!
   updateThought(thoughtId: ID!, content: String!): Thought!
   createCollection(title: String!, description: String): Collection!
   addThoughtToCollection(collectionId: ID!, thoughtId: ID!): Collection!
+  archiveCapture(captureId: ID!): CaptureItem!
+  promoteCapture(captureId: ID!): CaptureItem!
   recordEngagement(entityType: String!, entityId: ID!, actionType: String!, dwellMs: Int): EngagementEvent!
 }

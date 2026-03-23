@@ -38,6 +38,23 @@ const (
 	JobRefreshCurrents       JobType = "refresh_currents"
 )
 
+type CaptureStatus string
+
+const (
+	CaptureInbox    CaptureStatus = "inbox"
+	CaptureArchived CaptureStatus = "archived"
+	CapturePromoted CaptureStatus = "promoted"
+)
+
+type CaptureSourceType string
+
+const (
+	CaptureSourceText  CaptureSourceType = "text"
+	CaptureSourceQuote CaptureSourceType = "quote"
+	CaptureSourceLink  CaptureSourceType = "link"
+	CaptureSourceNote  CaptureSourceType = "note"
+)
+
 type User struct {
 	ID          string   `json:"id"`
 	Username    string   `json:"username"`
@@ -170,6 +187,21 @@ type EngagementEvent struct {
 	ActionType string `json:"actionType"`
 	DwellMS    int    `json:"dwellMs,omitempty"`
 	CreatedAt  string `json:"createdAt"`
+}
+
+type CaptureItem struct {
+	ID                string            `json:"id"`
+	AuthorID          string            `json:"authorId"`
+	Content           string            `json:"content"`
+	SourceType        CaptureSourceType `json:"sourceType"`
+	SourceTitle       string            `json:"sourceTitle,omitempty"`
+	SourceURL         string            `json:"sourceUrl,omitempty"`
+	SourceApp         string            `json:"sourceApp,omitempty"`
+	Status            CaptureStatus     `json:"status"`
+	PromotedThoughtID string            `json:"promotedThoughtId,omitempty"`
+	PromotedThought   *Thought          `json:"promotedThought,omitempty"`
+	CreatedAt         string            `json:"createdAt"`
+	UpdatedAt         string            `json:"updatedAt"`
 }
 
 type GraphNode struct {

@@ -99,6 +99,42 @@ func TestGraphQLCollectionsAndPersonalizationFlow(t *testing.T) {
 	assertPayloadContains(t, payload, h.collectionID)
 }
 
+func TestGraphQLCaptureInboxFlow(t *testing.T) {
+	h := newGraphQLHarness(t)
+
+	createPayload := h.exec(t, mutationCreateCapture, map[string]interface{}{
+		"content":     "Clip this quote about boredom and creativity.",
+		"sourceType":  "quote",
+		"sourceTitle": "On Boredom",
+		"sourceUrl":   "https://example.com/boredom",
+		"sourceApp":   "Safari",
+	})
+	captureID := mustExtractID(t, createPayload, "createCapture")
+
+	inboxPayload := h.exec(t, queryInbox, nil)
+	assertGraphQLHasData(t, inboxPayload, "inbox")
+	assertPayloadContains(t, inboxPayload, captureID)
+
+	promotePayload := h.exec(t, mutationPromoteCapture, map[string]interface{}{
+		"captureId": captureID,
+	})
+	assertGraphQLHasData(t, promotePayload, "promoteCapture")
+	assertPayloadContains(t, promotePayload, "promoted")
+
+	h.drain(t, 8, "after promote capture")
+
+	secondCreatePayload := h.exec(t, mutationCreateCapture, map[string]interface{}{
+		"content": "Archive me",
+	})
+	secondCaptureID := mustExtractID(t, secondCreatePayload, "createCapture")
+
+	archivePayload := h.exec(t, mutationArchiveCapture, map[string]interface{}{
+		"captureId": secondCaptureID,
+	})
+	assertGraphQLHasData(t, archivePayload, "archiveCapture")
+	assertPayloadContains(t, archivePayload, "archived")
+}
+
 func TestGraphQLCurrentsExposeMaterializedDiscoveryFields(t *testing.T) {
 	h := newGraphQLHarness(t)
 

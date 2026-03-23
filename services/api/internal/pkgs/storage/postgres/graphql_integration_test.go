@@ -86,6 +86,41 @@ func TestPostgresGraphQLE2ECollectionsAndPersonalization(t *testing.T) {
 	assertPayloadContains(t, payload, h.firstThought)
 }
 
+func TestPostgresGraphQLE2ECaptureInboxFlow(t *testing.T) {
+	h := newGraphQLHarness(t)
+
+	createPayload := h.exec(t, mutationCreateCapture, map[string]interface{}{
+		"content":     "Clip this quote about boredom and creativity.",
+		"sourceType":  "quote",
+		"sourceTitle": "On Boredom",
+		"sourceUrl":   "https://example.com/boredom",
+		"sourceApp":   "Safari",
+	})
+	captureID := mustExtractGraphQLID(t, createPayload, "createCapture")
+
+	inboxPayload := h.exec(t, queryInbox, nil)
+	assertGraphQLRootKeys(t, inboxPayload, "inbox")
+	assertPayloadContains(t, inboxPayload, captureID)
+
+	promotePayload := h.exec(t, mutationPromoteCapture, map[string]interface{}{
+		"captureId": captureID,
+	})
+	assertGraphQLRootKeys(t, promotePayload, "promoteCapture")
+	assertPayloadContains(t, promotePayload, "promoted")
+	h.drain(t, 8, "after promote capture")
+
+	secondCreatePayload := h.exec(t, mutationCreateCapture, map[string]interface{}{
+		"content": "Archive me",
+	})
+	secondCaptureID := mustExtractGraphQLID(t, secondCreatePayload, "createCapture")
+
+	archivePayload := h.exec(t, mutationArchiveCapture, map[string]interface{}{
+		"captureId": secondCaptureID,
+	})
+	assertGraphQLRootKeys(t, archivePayload, "archiveCapture")
+	assertPayloadContains(t, archivePayload, "archived")
+}
+
 func newGraphQLHarness(t *testing.T) *graphQLHarness {
 	t.Helper()
 

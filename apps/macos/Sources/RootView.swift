@@ -21,6 +21,8 @@ struct RootView: View {
                 switch model.selectedSection {
                 case .composer:
                     ComposerView()
+                case .inbox:
+                    InboxView()
                 case .telescope:
                     TelescopeView()
                 case .constellation:

@@ -19,6 +19,14 @@ struct SidebarView: View {
             .buttonStyle(.borderedProminent)
 
             Button {
+                model.selectedSection = .inbox
+                Task { await model.loadInbox() }
+            } label: {
+                Label("Inbox", systemImage: "tray.full")
+            }
+            .buttonStyle(.bordered)
+
+            Button {
                 model.selectedSection = .collections
                 Task { await model.loadCollections() }
             } label: {

@@ -49,6 +49,9 @@ type ConceptLink = models.ConceptLink
 type Collection = models.Collection
 type CollectionItem = models.CollectionItem
 type EngagementEvent = models.EngagementEvent
+type CaptureItem = models.CaptureItem
+type CaptureStatus = models.CaptureStatus
+type CaptureSourceType = models.CaptureSourceType
 type GraphNode = models.GraphNode
 type GraphEdge = models.GraphEdge
 type GraphNeighborhood = models.GraphNeighborhood
@@ -182,6 +185,21 @@ type engagementEventRow struct {
 	ActionType    string `bun:"action_type"`
 	DwellMS       int    `bun:"dwell_ms"`
 	CreatedAt     string `bun:"created_at"`
+}
+
+type captureItemRow struct {
+	bun.BaseModel     `bun:"table:capture_items"`
+	ID                string `bun:"id,pk"`
+	AuthorID          string `bun:"author_id"`
+	Content           string `bun:"content"`
+	SourceType        string `bun:"source_type"`
+	SourceTitle       string `bun:"source_title"`
+	SourceURL         string `bun:"source_url"`
+	SourceApp         string `bun:"source_app"`
+	Status            string `bun:"status"`
+	PromotedThoughtID string `bun:"promoted_thought_id"`
+	CreatedAt         string `bun:"created_at"`
+	UpdatedAt         string `bun:"updated_at"`
 }
 
 type ideaCurrentRow struct {
@@ -874,6 +892,77 @@ func (repository *PostgresRepository) ListCollections() ([]*Collection, error) {
 	return collections, nil
 }
 
+func (repository *PostgresRepository) CreateCapture(authorID, content string, sourceType CaptureSourceType, sourceTitle, sourceURL, sourceApp string) (*CaptureItem, error) {
+	ctx := context.Background()
+	row := &captureItemRow{
+		ID:          newUUID(),
+		AuthorID:    authorID,
+		Content:     content,
+		SourceType:  string(sourceType),
+		SourceTitle: sourceTitle,
+		SourceURL:   sourceURL,
+		SourceApp:   sourceApp,
+		Status:      string(models.CaptureInbox),
+	}
+	if _, err := repository.db.NewInsert().Model(row).
+		Column("id", "author_id", "content", "source_type", "source_title", "source_url", "source_app", "status").
+		Exec(ctx); err != nil {
+		return nil, err
+	}
+	return repository.GetCapture(row.ID)
+}
+
+func (repository *PostgresRepository) GetCapture(id string) (*CaptureItem, error) {
+	ctx := context.Background()
+	row := new(captureItemRow)
+	if err := repository.db.NewSelect().Model(row).Where("id = ?", id).Limit(1).Scan(ctx); err != nil {
+		return nil, err
+	}
+	return repository.captureFromRow(row), nil
+}
+
+func (repository *PostgresRepository) ListCapturesByAuthor(authorID string, status CaptureStatus, limit int) ([]*CaptureItem, error) {
+	ctx := context.Background()
+	rows := []*captureItemRow{}
+	query := repository.db.NewSelect().
+		Model(&rows).
+		Where("author_id = ?", authorID).
+		OrderExpr("updated_at DESC").
+		Limit(limit)
+	if status != "" {
+		query = query.Where("status = ?", string(status))
+	}
+	if err := query.Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []*CaptureItem{}, nil
+		}
+		return nil, err
+	}
+	captures := make([]*CaptureItem, 0, len(rows))
+	for _, row := range rows {
+		captures = append(captures, repository.captureFromRow(row))
+	}
+	return captures, nil
+}
+
+func (repository *PostgresRepository) UpdateCaptureStatus(captureID string, status CaptureStatus, promotedThoughtID string) (*CaptureItem, error) {
+	ctx := context.Background()
+	row := &captureItemRow{
+		ID:                captureID,
+		Status:            string(status),
+		PromotedThoughtID: promotedThoughtID,
+	}
+	if _, err := repository.db.NewUpdate().
+		Model(row).
+		Column("status", "promoted_thought_id").
+		Set("updated_at = NOW()").
+		Where("id = ?", captureID).
+		Exec(ctx); err != nil {
+		return nil, err
+	}
+	return repository.GetCapture(captureID)
+}
+
 func (repository *PostgresRepository) ListIdeaCurrents(limit int) ([]*models.IdeaCurrent, error) {
 	ctx := context.Background()
 	rows := []*ideaCurrentRow{}
@@ -1284,6 +1373,22 @@ func collectionFromRow(row *collectionRow) *Collection {
 	}
 }
 
+func captureFromRow(row *captureItemRow) *CaptureItem {
+	return &CaptureItem{
+		ID:                row.ID,
+		AuthorID:          row.AuthorID,
+		Content:           row.Content,
+		SourceType:        CaptureSourceType(row.SourceType),
+		SourceTitle:       row.SourceTitle,
+		SourceURL:         row.SourceURL,
+		SourceApp:         row.SourceApp,
+		Status:            CaptureStatus(row.Status),
+		PromotedThoughtID: row.PromotedThoughtID,
+		CreatedAt:         row.CreatedAt,
+		UpdatedAt:         row.UpdatedAt,
+	}
+}
+
 func thoughtLinkFromRow(row *thoughtLinkRow) *ThoughtLink {
 	return &ThoughtLink{
 		ID:              row.ID,
@@ -1328,6 +1433,16 @@ func jobFromRow(row *jobRow) *Job {
 	}
 	_ = json.Unmarshal(row.Payload, &job.Payload)
 	return job
+}
+
+func (repository *PostgresRepository) captureFromRow(row *captureItemRow) *CaptureItem {
+	capture := captureFromRow(row)
+	if capture.PromotedThoughtID != "" {
+		if thought, err := repository.getThought(capture.PromotedThoughtID, false); err == nil {
+			capture.PromotedThought = thought
+		}
+	}
+	return capture
 }
 
 func parseVector(input string) []float64 {

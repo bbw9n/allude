@@ -237,6 +237,46 @@ func (repository *CachedRepository) ListCollections() ([]*models.Collection, err
 	return collections, err
 }
 
+func (repository *CachedRepository) CreateCapture(authorID, content string, sourceType models.CaptureSourceType, sourceTitle, sourceURL, sourceApp string) (*models.CaptureItem, error) {
+	capture, err := repository.next.CreateCapture(authorID, content, sourceType, sourceTitle, sourceURL, sourceApp)
+	if err == nil {
+		repository.invalidateAll()
+	}
+	return capture, err
+}
+
+func (repository *CachedRepository) GetCapture(id string) (*models.CaptureItem, error) {
+	key := "capture:" + id
+	if value, ok := repository.get(key); ok {
+		return value.(*models.CaptureItem), nil
+	}
+	capture, err := repository.next.GetCapture(id)
+	if err == nil && capture != nil {
+		repository.set(key, capture)
+	}
+	return capture, err
+}
+
+func (repository *CachedRepository) ListCapturesByAuthor(authorID string, status models.CaptureStatus, limit int) ([]*models.CaptureItem, error) {
+	key := fmt.Sprintf("captures:%s:%s:%d", authorID, status, limit)
+	if value, ok := repository.get(key); ok {
+		return value.([]*models.CaptureItem), nil
+	}
+	captures, err := repository.next.ListCapturesByAuthor(authorID, status, limit)
+	if err == nil && captures != nil {
+		repository.set(key, captures)
+	}
+	return captures, err
+}
+
+func (repository *CachedRepository) UpdateCaptureStatus(captureID string, status models.CaptureStatus, promotedThoughtID string) (*models.CaptureItem, error) {
+	capture, err := repository.next.UpdateCaptureStatus(captureID, status, promotedThoughtID)
+	if err == nil {
+		repository.invalidateAll()
+	}
+	return capture, err
+}
+
 func (repository *CachedRepository) ListIdeaCurrents(limit int) ([]*models.IdeaCurrent, error) {
 	key := fmt.Sprintf("idea-currents:%d", limit)
 	if value, ok := repository.get(key); ok {
